@@ -125,7 +125,12 @@ uint32 GenTableCH7036( struct timing_ch7036* pLvdsInput,
 					   struct timing_ch7036* pHdmiOutput,
 					   struct reg_ch7036**   ppRegTable
 					   );
-					   
+
+// return default value of register
+// Note page is specified using the value written to register 3
+unsigned char GenDefault(int page, int reg);
+
+#ifdef USE_TBL365
 // functions in tbl365.c
 
 //	write the registers in the pRegTable returned by GenTableCH7036 
@@ -134,6 +139,7 @@ uint32 SendRegisterTable(struct reg_ch7036*  pRegTable);
 					   
 uint32 CalculateINCs();
 
+  // Note clashes with X base type
 void Display();
 
 /*
@@ -159,6 +165,7 @@ void Display();
 // real implement of registers read/write functions
 unsigned char I2CRead_impl(unsigned char index);
 void I2CWrite_impl(unsigned char index, unsigned char value);
+#endif
 
 #ifdef __cplusplus
 }

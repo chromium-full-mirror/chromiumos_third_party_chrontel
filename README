@@ -1,0 +1,25 @@
+Chrontel CH7036 Code
+--------------------
+
+Code from Chrontel:
+
+GenTableCH7036.c	Routines to generate and return register settings
+GenTableCH7036.h	Header for above
+License.txt		Chrontel license
+build.sh		Example compiler line
+fw7036.bin		Binary firmware to load into CH7036
+postgen7036.c		Example backend code
+tbl365.c		Example code for using GenTableCH7036
+
+
+Code from The Chromium OS Authors
+
+README.chromium		Metadata
+ch7036_access.c		Access routines
+ch7036.h		Header for device and access.c
+ch7036_monitor.c	Main driver for monitors attached with CH7036
+ch7036_debug.c		Simple command line utility for debugging
+edid_utils.c,h		Utility routines for edid data
+xrr_utils.c,h		Utility routines for Xrandr
+Makefile                Makefile for building as part of ChromeOS
+README                  List of file sources

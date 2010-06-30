@@ -1102,7 +1102,7 @@ static uint8 global_arr_003[CONST_0032][CONST_0033];
 
 static uint8 global_arr_004[CONST_0032][CONST_0033];
 static uint8 g_dirtyreg = 0;
-static uint8 g_mcurst = 1;
+// not used: static uint8 g_mcurst = 1;
 
 static struct reg_ch7036  global_arr_005[CONST_0032*CONST_0033];
 static uint32 global_arr_005_length =0;
@@ -3431,4 +3431,11 @@ uint32 GenTableCH7036( struct timing_ch7036* pLvdsInput,
 		if (ppRegTable) *ppRegTable = global_arr_005;
 
 		return 0;
+}
+
+unsigned char GenDefault(int p, int r)
+{
+	if ((p < 5) && (r < 128))
+		return global_arr_001[p][r];
+	return 0;
 }

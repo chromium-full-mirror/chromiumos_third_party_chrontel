@@ -1,0 +1,8 @@
+DESCRIPTION="Chrontel CH7036 User Space driver"
+HOMEPAGE="http://www.chrontel.com"
+UPSTREAM_REPO="None"
+LOCAL_GIT_REPO="git://git.chromium.org/chrontel"
+UPSTREAM_BUGSDB="None"
+LOCAL_BUGSDB="http://code.google.com/p/chromium/issues/list"
+LICENSE="BSD"
+LICENSE_FILE="License.txt"
