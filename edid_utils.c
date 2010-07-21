@@ -63,12 +63,203 @@ unsigned char test_edid2[128] = {
   0x31,0x2d,0x54,0x4c,0x4e,0x31,0x00,0x4e
 };
 
+
+/* Print an edid descriptor block (standard case is at 54 + 18*i) */
+void show_edid_dtd(unsigned char* base)
+{
+  int pelclk = base[0] + (base[1]<<8);
+    
+  if (pelclk != 0) {
+    int hres = base[2] + ((base[4] & 0xf0)<<4);
+    int hbl = base[3] + ((base[4] & 0x0f)<<8);
+    int vres = base[5] + ((base[7] & 0xf0)<<4);
+    int vbl = base[6] + ((base[7] & 0x0f)<<8);
+    int hso = base[8] + ((base[11] & 0xc0)<<2);
+    int hsw = base[9] + ((base[11] & 0x30)<<4);
+    int vso = (base[10] >> 4) + 
+      ((base[11] & 0x0c)<<2);
+    int vsw = (base[10] & 0xf) + 
+      ((base[11] & 0x03)<<4);
+    int hsiz = base[12] + ((base[14] & 0xf0)<<4);
+    int vsiz = base[13] + ((base[14] & 0x0f)<<8);
+    int hbdr = base[15];
+    int vbdr = base[16];
+    int mdflg = base[17];
+
+    int refr = (pelclk * 10000)/((hres+hbl)*(vres+vbl));
+    int refm = (pelclk * 10000)%((hres+hbl)*(vres+vbl));
+    int refd = (refm*100)/((hres+hbl)*(vres+vbl));
+
+    printf("%dx%d%c@%d.%02d, dot clock %d  %cHsync %cVsync\n", 
+	   hres, vres, (mdflg & 0x80) ? 'i':'p', 
+	   refr, refd,
+	   pelclk * 10000,
+	   (mdflg & 0x2) ? '+':'-',
+	   (mdflg & 0x4) ? '+':'-');
+    printf("H: start %d, end %d, total %d\n",
+	   hres+hso, hres+hso+hsw, hres+hbl);
+    printf("V: start %d, end %d, total %d\n",
+	   vres+vso, vres+vso+vsw, vres+vbl);
+    printf("Size %dx%dmm, Border %dx%d pixels\n", hsiz, vsiz, hbdr, vbdr);
+  } else { 
+    char monstr[18];
+    int stp;
+    switch (base[3]) {
+	
+    case 0xff:
+    case 0xfe:
+    case 0xfc:
+      strncpy(monstr, (char *)base+5, 13);
+      for(stp = 0; stp < 13; stp++) if (monstr[stp] == 0x0a) monstr[stp] = 0;
+      monstr[stp] = 0;
+      if (base[3] != 0xfe)
+	printf("%s: %s\n", 
+	       (base[3] == 0xfc) ? "Name" : "Serial", monstr);
+      else
+	printf("%s\n", monstr);
+      break;
+
+    case 0xfd:
+      printf("Range V %d - %d Hz, H %d - %d kHz, Pel <= %d MHz\n",
+	     base[5], base[6], base[7], base[8], base[9]*10);
+      break;
+
+    default:
+      printf("Undecoded descriptor block type 0x%x\n", base[3]);
+      break;
+    }
+  }
+}
+
+
+char *sad_audio_type[16] = {
+  "Reserved", "LPCM", "AC-3", "MPEG1 (Layer 1 and 2)",
+  "MP3", "MPEG2", "AAC", "DTS",
+  "ATRAC", "SACD", "DD+", "DTS-HD",
+  "MLP/Dolby TrueHD", "DST Audio", "WMA Pro", "Reserved"};
+
+void show_cea_timing(unsigned char* edid_ext)
+{
+  int i, dbc;
+  int off_dtd = edid_ext[2];
+  int n_dtd = edid_ext[3] & 0xf;
+  printf("Found CEA EDID Timing Extension rev 3\n");
+
+  if (off_dtd < 4) {
+    printf("Block is empty (off_dtd = %d, n_dtd = %d\n", off_dtd, n_dtd);
+    return;
+  }
+  printf("Block has %d DTDs starting at offset %d (thus %d bytes of DBCs)\n",
+	 n_dtd, off_dtd, off_dtd - 4);
+  printf("Support: %sunderscan, %sbasic audio, %sYCrCb 4:4:4, %sYCrCb 4:2:2\n",
+	 (edid_ext[3] & 0x80) ? "" : "no ",
+	 (edid_ext[3] & 0x40) ? "" : "no ",
+	 (edid_ext[3] & 0x20) ? "" : "no ",
+	 (edid_ext[3] & 0x10) ? "" : "no ");
+
+  /* Between offset 4 and off_dtd is the Data Block Collection */
+  /* There may be none, in which case off_dtd == 4             */
+  dbc = 4;
+  while (dbc < off_dtd) {
+    int db_len = edid_ext[dbc] & 0x1f;
+    int dbp = dbc + 1;
+
+    switch (edid_ext[dbc] >> 5) {
+
+    case 1:
+      /* Audio Data Block */
+      while (dbp < (dbc + db_len + 1)) {
+	int atype =(edid_ext[dbp]>>3) & 0xf;
+	printf("Audio: %d channel %s: ", edid_ext[dbp] & 0x7,
+	       sad_audio_type[atype]);
+	dbp++;
+	if (edid_ext[dbp] & 0x40) printf("192k ");
+	if (edid_ext[dbp] & 0x20) printf("176k ");
+	if (edid_ext[dbp] & 0x10) printf("96k ");
+	if (edid_ext[dbp] & 0x08) printf("88k ");
+	if (edid_ext[dbp] & 0x04) printf("48k ");
+	if (edid_ext[dbp] & 0x02) printf("44k ");
+	if (edid_ext[dbp] & 0x01) printf("32k ");
+	dbp++;
+	if (atype == 1)
+	  printf("%s%s%s\n",
+		 (edid_ext[dbp] & 0x4) ? "24 bit":"",
+		 (edid_ext[dbp] & 0x2) ? "20 bit":"",
+		 (edid_ext[dbp] & 0x1) ? "16 bit":"");
+	else
+	  printf("Max %dkHz\n", edid_ext[dbp] * 8);
+	dbp++;
+      }
+      break;
+
+    case 2:
+      /* Vidio Data Block */
+      while (dbp < (dbc + db_len + 1)) {
+	int vtype = edid_ext[dbp] & 0x7f;
+	printf("Video: Code %d %s\n", vtype,
+	       (edid_ext[dbp] & 0x80) ? "(native)":"");
+	dbp++;
+      }
+      break;
+
+    case 3:
+      /* Vendor Data Block */
+      if ((edid_ext[dbp+0] == 0x03) && 
+	  (edid_ext[dbp+1] == 0x0C) && 
+	  (edid_ext[dbp+2] == 0x00)) {
+	printf("HDMI Vendor block (CEC @0x%04x):\nSupport: %s%s%s%s%s%s\n",
+	       edid_ext[dbp+3] + (edid_ext[dbp+4]<<8),
+	       (edid_ext[dbp+5] & 0x80) ? "AI ":"",
+	       (edid_ext[dbp+5] & 0x40) ? "DC_48bit ":"",
+	       (edid_ext[dbp+5] & 0x20) ? "DC_36bit ":"",
+	       (edid_ext[dbp+5] & 0x10) ? "DC_30bit ":"",
+	       (edid_ext[dbp+5] & 0x08) ? "DC_Y444 ":"",
+	       (edid_ext[dbp+5] & 0x01) ? "DVI_Dual":"");
+	if (edid_ext[dbp+6] > 0) 
+	  printf("Max TMDS Frequency %dMHz\n", edid_ext[dbp+6]*5);
+	if (edid_ext[dbp+7] & 0x80)
+	  printf("Video latency %dms, audio latency %dms\n",
+		 2 * (edid_ext[dbp+8] - 1), 2 * (edid_ext[dbp+9] - 1));
+	if (edid_ext[dbp+7] & 0x40)
+	  printf("Interlaced Video latency %dms, audio latency %dms\n",
+		 2 * (edid_ext[dbp+10] - 1), 2 * (edid_ext[dbp+11] - 1));
+      }
+      else
+	printf("Vendor block for %02x-%02x-%02x", 
+	       edid_ext[dbp+0], edid_ext[dbp+1], edid_ext[dbp+2]);
+      break;
+
+    case 4:
+      /* Speaker allocation Block */
+      printf("Speakers: %s%s%s%s%s%s%s\n",
+	     (edid_ext[dbp+0] & 0x40) ? "RearCenter L/R ":"",
+	     (edid_ext[dbp+0] & 0x20) ? "FrontCenter L/R ":"",
+	     (edid_ext[dbp+0] & 0x10) ? "Rear Center":"",
+	     (edid_ext[dbp+0] & 0x08) ? "Rear L/R ":"",
+	     (edid_ext[dbp+0] & 0x04) ? "Front Center ":"",
+	     (edid_ext[dbp+0] & 0x02) ? "LFE ":"",
+	     (edid_ext[dbp+0] & 0x01) ? "Front L/R ":"");
+      break;
+
+    default:
+      printf("Unknown Data Block with type tag 0x%x, length 0x%x\n",
+	     edid_ext[dbc] >> 5, db_len);
+      break;
+    }
+    dbc += db_len + 1;
+  }
+  for(i=0; i < n_dtd; i++)
+    show_edid_dtd(edid_ext + (off_dtd + 18*i));
+}
+
 /* Print out an EDID */
 void show_edid(unsigned char *edid_data, int ext)
 {
   int i;
   int edidver = edid_data[18];
   int edidrev = edid_data[19];
+  unsigned char* edid_ext;
+
   if (!((edid_data[0]==0x00) && (edid_data[1]==0xff) && (edid_data[2]==0xff) && 
 	(edid_data[3]==0xff) && (edid_data[4]==0xff) && (edid_data[5]==0xff) && 
 	(edid_data[6]==0xff) && (edid_data[7]==0x00))) {
@@ -154,70 +345,20 @@ void show_edid(unsigned char *edid_data, int ext)
   
   printf("Descriptor blocks:\n");
   for(i = 0; i < 4; i++) {
-    int pelclk = edid_data[54 + 18*i] + (edid_data[55 + 18*i]<<8);
+    show_edid_dtd(edid_data + (54 + i * 18));
+  }
+  printf("EDID contains %d extensions\n", edid_data[126]);
+
+  edid_ext = edid_data + 128;
+
+  if ((ext >= 1) && (edid_data[126] >= 1)) {
+    if ((edid_ext[0] == 0x02) && (edid_ext[1] == 0x03)) {
+      show_cea_timing(edid_ext);
     
-    if (pelclk != 0) {
-      int hres = edid_data[56 + 18*i] + ((edid_data[58 + 18*i] & 0xf0)<<4);
-      int hbl = edid_data[57 + 18*i] + ((edid_data[58 + 18*i] & 0x0f)<<8);
-      int vres = edid_data[59 + 18*i] + ((edid_data[61 + 18*i] & 0xf0)<<4);
-      int vbl = edid_data[60 + 18*i] + ((edid_data[61 + 18*i] & 0x0f)<<8);
-      int hso = edid_data[62 + 18*i] + ((edid_data[65 + 18*i] & 0xc0)<<2);
-      int hsw = edid_data[63 + 18*i] + ((edid_data[65 + 18*i] & 0x30)<<4);
-      int vso = (edid_data[64 + 18*i] >> 4) + 
-	        ((edid_data[65 + 18*i] & 0x0c)<<2);
-      int vsw = (edid_data[64 + 18*i] & 0xf) + 
-                ((edid_data[65 + 18*i] & 0x03)<<4);
-      int hsiz = edid_data[66 + 18*i] + ((edid_data[68 + 18*i] & 0xf0)<<4);
-      int vsiz = edid_data[67 + 18*i] + ((edid_data[68 + 18*i] & 0x0f)<<8);
-      int hbdr = edid_data[69 + 18*i];
-      int vbdr = edid_data[70 + 18*i];
-      int mdflg = edid_data[71 + 18*i];
+    } else
+      printf("EDID extension tag 0x%02x rev 0x%02x not known\n",
+	     edid_data[128], edid_data[129]);
 
-      int refr = (pelclk * 10000)/((hres+hbl)*(vres+vbl));
-      int refm = (pelclk * 10000)%((hres+hbl)*(vres+vbl));
-      int refd = (refm*100)/((hres+hbl)*(vres+vbl));
-
-      printf("%dx%d%c@%d.%02d, dot clock %d  %cHsync %cVsync\n", 
-	     hres, vres, (mdflg & 0x80) ? 'i':'p', 
-	     refr, refd,
-	     pelclk * 10000,
-	     (mdflg & 0x2) ? '+':'-',
-	     (mdflg & 0x4) ? '+':'-');
-      printf("H: start %d, end %d, total %d\n",
-	     hres+hso, hres+hso+hsw, hres+hbl);
-      printf("V: start %d, end %d, total %d\n",
-	     vres+vso, vres+vso+vsw, vres+vbl);
-      printf("Size %dx%dmm, Border %dx%d pixels\n", hsiz, vsiz, hbdr, vbdr);
-    } else { 
-      char monstr[18];
-      int stp;
-      switch (edid_data[57 + 18*i]) {
-	
-      case 0xff:
-      case 0xfe:
-      case 0xfc:
-	strncpy(monstr, (char *)edid_data+59+18*i, 13);
-	for(stp = 0; stp < 13; stp++) if (monstr[stp] == 0x0a) monstr[stp] = 0;
-	monstr[stp] = 0;
-	if (edid_data[57 + 18*i] != 0xfe)
-	  printf("%s: %s\n", 
-		 (edid_data[57 + 18*i] == 0xfc) ? "Name" : "Serial", monstr);
-	else
-	  printf("%s\n", monstr);
-	break;
-
-      case 0xfd:
-	printf("Range V %d - %d Hz, H %d - %d kHz, Pel <= %d MHz\n",
-	       edid_data[59 + 18*i], edid_data[60 + 18*i], 
-	       edid_data[61 + 18*i], edid_data[62 + 18*i], 
-	       edid_data[63 + 18*i]*10);
-	break;
-
-      default:
-	printf("Undecoded descriptor block type 0x%x\n", edid_data[57 + 18*i]);
-	break;
-      }
-    }
   }
 }
 

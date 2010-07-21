@@ -277,12 +277,12 @@ int main(int argc, char *argv[])
 	  ext = MAX_EDID_EXT;
 	}
 	for(i = 1; i <= ext; i++) {
-	  err = ch_get_edid(i2cdev, 0, &edid[0]);
+	  err = ch_get_edid(i2cdev, i, &edid[i*128]);
 	  if (err < 0) {
 	    fprintf(stderr, "Get EDID Failed (extension block %d)\n", i);
 	    exit(1);
 	  }
-	  show_edid_data(&edid[0], 128, i * 128);
+	  show_edid_data(&edid[i*128], 128, i * 128);
 	}
 	show_edid(&edid[0], ext);
       }

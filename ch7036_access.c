@@ -68,6 +68,31 @@ static int smbus_write_byte_data(int dev, int reg, int data)
   return res;
 }
 
+static int smbus_write_word_data(int dev, int reg, int data)
+{
+  struct i2c_smbus_ioctl_data iodata;
+  union i2c_smbus_data value;
+  int res;
+
+  if (dev < 0) {
+    printf("WR_%d {0x%02x, 0x%04x} -> %d\n", ch7036_cur_page, reg, data, 0);
+    return 0;
+  }
+
+  value.word = data;
+  iodata.read_write = I2C_SMBUS_WRITE;
+  iodata.command = reg;
+  iodata.size = I2C_SMBUS_WORD_DATA;
+  iodata.data = &value;
+  res = ioctl(dev, I2C_SMBUS, &iodata);
+  if (res < 0)
+    fprintf(stderr, "Write word fail (%d, %04x, %02x): %s",
+	    dev, reg, data, strerror(errno));
+  if (ch7036_debugi2c)
+    printf("WR_%d {0x%02x, 0x%04x} -> %d\n", ch7036_cur_page, reg, data, res);
+  return res;
+}
+
 #ifdef FASTLOAD
 static int smbus_write_reg_bytes(int dev, int reg, int size, 
 				 unsigned char *data)
@@ -91,7 +116,7 @@ static int smbus_write_reg_bytes(int dev, int reg, int size,
   value.block[0] = size;
   iodata.read_write = I2C_SMBUS_WRITE;
   iodata.command = reg;
-  iodata.size = I2C_SMBUS_BLOCK_DATA;
+  iodata.size = I2C_SMBUS_I2C_BLOCK_DATA;
   iodata.data = &value;
   res = ioctl(dev, I2C_SMBUS, &iodata);
   if (res < 0)
@@ -376,9 +401,22 @@ int ch_load_firmware(int dev, char* fname)
     smbus_write_byte_data(dev, 0x03, 0x07);
     /*  Download the firmware */
     /*  "The downloading can be byte by byte, or using I2C block write" */
-    /* FIXME mdhayter: Did not get the block write to work */
-#ifndef FASTLOAD
+    /* FIXME mdhayter: Did not get the block write to work with count > 1 */
+    /* The SMBus hangs completely using I2C_SMBUS_I2C_BLOCK which is the  */
+    /* version that does not send the length required by Chrontel (unless */
+    /* the length is set to 1). The transfers complete ok using the */
+    /* I2C_SMBUS_BLOCK version, but the firmware is no good (as expected) */
+    /* Could it be the kernel driver? */
+    /* Using word seems ok and halves the number of transactions */
+#ifdef SLOWLOAD
     for (fs1=0; fs1<fs; fs1++) 
+      smbus_write_byte_data(dev, 0x07, buf[fs1]);
+#endif
+
+#ifndef FASTLOAD
+    for(fs1 = 0; (fs1+1) < fs; fs1+=2)
+      smbus_write_word_data(dev, 0x07, buf[fs1] | (buf[fs1+1]<<8));
+    if (fs1 < fs)
       smbus_write_byte_data(dev, 0x07, buf[fs1]);
 #else
 #define TXSIZE 32

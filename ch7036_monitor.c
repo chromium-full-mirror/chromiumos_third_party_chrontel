@@ -486,6 +486,9 @@ int main(int argc, char *argv[])
   struct timing_ch7036 prefer;
   struct timing_ch7036 *mon_timing;
 
+  /* Set stdout for easy logs during debug */
+  setlinebuf(stdout);
+  printf("%s: starts\n", argv[0]);
   for(arg=1; arg < argc; arg++) {
     if ((argv[arg][0]) != '-') break;
     switch (argv[arg][1]) {
@@ -555,11 +558,23 @@ int main(int argc, char *argv[])
   if (dummy_i2c)
     i2cdev = -1;
   else {
-    i2cdev = open(i2cfile, O_RDWR);
-    if (i2cdev < 0) {
-      fprintf(stderr, "%s: Could not open %s: %s\n", 
-	      argv[0], i2cfile, strerror(errno));
-      exit(1);
+    int tryi2c = probe_only ? 20 : 1;
+
+    /* udev runs fairly late. */
+    /* To allow early probe tollerate device not being there for a while */
+
+    while (tryi2c > 0) {
+      i2cdev = open(i2cfile, O_RDWR);
+      if (i2cdev > 0) break;
+
+      if (verbose || !probe_only)
+        fprintf(stderr, "%s: Could not open %s: %s\n", 
+                argv[0], i2cfile, strerror(errno));
+      tryi2c--;
+
+      if (tryi2c < 1)
+        exit(1);
+      sleep(1);
     }
   }
   /* CH7036 only has one slave address option */
@@ -569,8 +584,9 @@ int main(int argc, char *argv[])
     err = ioctl(i2cdev, I2C_SLAVE, CH7036_I2C_ADDR);
 
   if (err < 0) {
-    fprintf(stderr, "%s: Could not set slave address 0x%x: %s\n", 
-	    argv[0], CH7036_I2C_ADDR, strerror(errno));
+      if (verbose || !probe_only)
+        fprintf(stderr, "%s: Could not set slave address 0x%x: %s\n", 
+                argv[0], CH7036_I2C_ADDR, strerror(errno));
     exit(1);
   }
   
@@ -581,8 +597,10 @@ int main(int argc, char *argv[])
     fprintf(stderr, "Found device ID 0x%02x\n", err);
 
   if (err != EXPECTED_CH7036_DEVID) {
-    fprintf(stderr, "%s: Fatal: Device ID 0x%02x not the expected 0x%02x\n", 
-	    argv[0], err, EXPECTED_CH7036_DEVID);
+    if (verbose || !probe_only)
+      fprintf(stderr, 
+              "%s: Fatal: Device ID 0x%02x not the expected 0x%02x\n", 
+              argv[0], err, EXPECTED_CH7036_DEVID);
     exit(1);
   }
 
@@ -647,9 +665,14 @@ int main(int argc, char *argv[])
 	      argv[0]);
     }
     else {
+      if (edid[126] > 0)
+        ch_get_edid(i2cdev, 1, &edid[128]);
+
       if (verbose) {
-	show_edid_data(&edid[0], 128, 0);
-	show_edid(&edid[0], 0);
+        show_edid_data(&edid[0], 128, 0);
+        if (edid[126] > 0)
+          show_edid_data(&edid[128], 128, 128);
+        show_edid(&edid[0], (edid[126] > 0) ? 1:0);
       }
       if ((forcen_x == 0) && get_native(&edid[0], &prefer, &aspect))
 	mon_timing = &prefer;
