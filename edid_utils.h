@@ -12,6 +12,7 @@
 #define ASPECT_16_9  3
 #define N_ASPECTS    4
 
+int edid_valid(unsigned char *edid_data);
 void show_edid_data(unsigned char *edid_data, int items, int base);
 void show_edid(unsigned char *edid_data, int ext);
 int find_aspect(int h, int v);

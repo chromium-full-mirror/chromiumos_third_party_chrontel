@@ -84,7 +84,7 @@ void ch_monitor_off_keep_ddc(int dev);
 int ch_hdmi_is_on(int dev);
 void ch_calculate_incs(int dev);
 int ch_load_firmware(int dev, char* fname);
-int ch_mcu_version(int dev, int verbose);
+int ch_mcu_version(int dev, int newFirmware, int verbose);
 int ch_hdmi_detected(int dev);
 int ch_get_edid(int dev, int edid_block, unsigned char* edid);
 

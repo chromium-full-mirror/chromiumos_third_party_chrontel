@@ -245,7 +245,7 @@ int main(int argc, char *argv[])
 
     case 'v':
       printf("Get MCU firmware version\n");
-      ch_mcu_version(i2cdev, 1);
+      ch_mcu_version(i2cdev, 1, 1);
       break;
 
     case 'E': 

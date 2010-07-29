@@ -17,6 +17,7 @@
 #include <X11/Xproto.h>
 #include <X11/Xatom.h>
 #include <X11/extensions/Xrandr.h>
+#include <X11/extensions/dpms.h>
 
 #if RANDR_MAJOR > 1 || (RANDR_MAJOR == 1 && RANDR_MINOR >= 2)
 #define HAS_RANDR_1_2 1
@@ -28,8 +29,6 @@
 #include "ch7036.h"
 #include "edid_utils.h"
 #include "xrr_utils.h"
-
-#define DEBUG(z) z
 
 #define MAX_EDID_EXT 4
 
@@ -249,7 +248,6 @@ void set_x_size(Display *dpy, Window root, int w, int h,
   ev.border_width = 0;
   ev.above = None;
   ev.override_redirect = 0;
-  DEBUG(printf("Send X event for new root size %dx%d\n", w, h));
   XSendEvent(dpy, root, False, 
 	     StructureNotifyMask|SubstructureNotifyMask, (XEvent *)&ev);
   XFlush(dpy);
@@ -277,7 +275,8 @@ void usage(char *prog)
 
 
 
-int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect)
+int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
+               int verbose)
 {
   int seen_pref = 0;
   int interlace = 0;
@@ -330,16 +329,17 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect)
 	interlace = (mdflg & 0x80);
 
 	if (*aspect < 0) {
-	  DEBUG(printf("Didn't find aspect from %dx%d, trying size %dx%d",
-		       hres, vres, hsiz, vsiz));
+	  if (verbose) 
+            printf("Didn't find aspect from %dx%d, trying size %dx%d",
+                   hres, vres, hsiz, vsiz);
 	  *aspect = find_aspect(hsiz, vsiz);
 	  if ((*aspect < 0) && interlace) {
 	    /* This is really about 1920x540i, seen in the wild */
-	    DEBUG(printf("No aspect for interlaced, try double v\n"));
+	    if (verbose) printf("No aspect for interlaced, try double v\n");
 	    *aspect = find_aspect(hres, vres*2);
 	  }
 	  if (*aspect < 0) {
-	    DEBUG(printf("Still couldn't find aspect, use 4x3\n"));
+	    if (verbose) printf("Still couldn't find aspect, use 4x3\n");
 	    *aspect = ASPECT_4_3;
 	  }
 	}
@@ -353,7 +353,7 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect)
 
 int get_standard(unsigned char *data, 
 		 struct timing_ch7036 **mon, int *found_aspect,
-		 int force_maxw, int force_aspect)
+		 int force_maxw, int force_aspect, int verbose)
 {
   int curbest_aspect = -1;
   struct timing_ch7036 *curbest = NULL;
@@ -385,10 +385,10 @@ int get_standard(unsigned char *data,
     if ((vinfo & 0x3f) != 0) continue;
     
     hres = (hinfo * 8) + 248;
-    DEBUG(printf("Found %d wide %s\n", hres, aspect_to_str[vinfo>>6]));
+    if (verbose) printf("Found %d wide %s\n", hres, aspect_to_str[vinfo>>6]);
     if ((force_maxw > 0) && (hres > force_maxw)) continue;
 
-    DEBUG(printf("Try %d wide %s\n", hres, aspect_to_str[vinfo>>6]));
+    if (verbose) printf("Try %d wide %s\n", hres, aspect_to_str[vinfo>>6]);
 
     switch (vinfo >> 6) {
     case ASPECT_16_10:
@@ -414,8 +414,8 @@ int get_standard(unsigned char *data,
 	  (((vinfo >> 6) == native_aspect) && 
 	   ((curbest_aspect != native_aspect) || (hres > curbest->ha)))) {
 	/* We had nothing, or we found first or bigger native aspect */
-	DEBUG(printf("Better mode width %d, aspect %s\n",
-		     hres, aspect_to_str[vinfo>>6]));
+	if (verbose) printf("Better mode width %d, aspect %s\n",
+                            hres, aspect_to_str[vinfo>>6]);
 	curbest = known_modes + md;
 	curbest_aspect = (vinfo >> 6);
       } else if (curbest_aspect != native_aspect) {
@@ -424,13 +424,13 @@ int get_standard(unsigned char *data,
 	    ((vinfo >> 6) == ASPECT_16_9) &&
 	    ((curbest_aspect != ASPECT_16_9) || (hres > curbest->ha))) {
 	  /* Looking for 16:10, found first 16:9 or bigger 16:9 */
-	  DEBUG(printf("Want 16:10 use 16:9 width %d, aspect %s\n",
-		       hres, aspect_to_str[vinfo>>6]));
+	  if (verbose) printf("Want 16:10 use 16:9 width %d, aspect %s\n",
+                              hres, aspect_to_str[vinfo>>6]);
 	  curbest = known_modes + md;
 	  curbest_aspect = (vinfo >> 6);
 	} else if (hres > curbest->ha) {
-	  DEBUG(printf("Better based on size: width %d, aspect %s\n",
-		       hres, aspect_to_str[vinfo>>6]));
+	  if (verbose) printf("Better based on size: width %d, aspect %s\n",
+                              hres, aspect_to_str[vinfo>>6]);
 	  curbest = known_modes + md;
 	  curbest_aspect = (vinfo >> 6);
 	}	  
@@ -480,6 +480,10 @@ int main(int argc, char *argv[])
   int *width_fix;
   unsigned char edid[256];
   int aspect;
+  int hdmiOn, seenOff;
+  int needReload = 1;   /* Force firmware to load on the first loop */
+  int newFirmware = 1;
+
   struct reg_ch7036 *reglist;
 
   struct timing_ch7036 lcd_timing;
@@ -624,19 +628,6 @@ int main(int argc, char *argv[])
   } else
     width_fix = NULL;
 
-  /* This also intializes the changed vector */
-  ch_reset_todefault(i2cdev);
-
-  err = ch_load_firmware(i2cdev, fwfile);
-  if (err < 0) {
-    fprintf(stderr, "%s: Could not load firmware %s\n", argv[0], fwfile);
-    exit(1);
-  }
-  if (verbose)
-    ch_mcu_version(i2cdev, 1);
-  ch_monitor_off_keep_ddc(i2cdev);
-
-
   lcd_timing.clk_khz = xmode->dotClock/1000;
   lcd_timing.pixel_fmt = PIXEL_FMT_18BIT;
   lcd_timing.hs_pol = (xmode->modeFlags & RR_HSyncPositive) ? 1 : 0;
@@ -655,16 +646,78 @@ int main(int argc, char *argv[])
 
   while (1) {
     int new_width;
-    while (!ch_hdmi_detected(i2cdev))
+
+    if (needReload) {
+      int mcutry = 0;
+      /* This also intializes the changed vector */
+      ch_reset_todefault(i2cdev);
+
+      err = ch_load_firmware(i2cdev, fwfile);
+      if (err < 0) {
+        fprintf(stderr, "%s: Could not load firmware %s\n", argv[0], fwfile);
+        exit(1);
+      }
+      newFirmware = 1;
+      needReload = 0;
+      do {
+        if (ch_mcu_version(i2cdev, 1, verbose) > 0) break;
+        sleep(1);
+        mcutry++;
+        if (mcutry >= 5) needReload = 1;
+      } while (mcutry < 5);
+      /* HDMI detection seems a bit bouncy after firmware load */
+      /* If there was a sleep added here it would delay detection */
+      /* at startup time, so don't do that */
+      /* Using the longer ch_mcu_version timeout makes it less liekly */
+      /* Turning the monitor on here seems to make the problem go away */
+      /* FIXME: but it causes LCD flicker */
+      ch_monitor_on(i2cdev);
+      ch_monitor_off_keep_ddc(i2cdev);
+    }
+
+    seenOff = 0;
+    while (!needReload && !ch_hdmi_detected(i2cdev)) {
       sleep(5);
-  
+      /* Check the Chrontel firmware is still alive */
+      /* Originally only did this when DPMS said screen came on */
+      /* But that misses the case where lid close takes system to s3 */
+      if (ch_mcu_version(i2cdev, 0, 0) < 0) {
+        if (verbose) printf("Lost the Chrontel firmware\n");
+        needReload = 1;
+      }
+    }
+    /* Recycle the outer while loop to hit the fw reload code */
+    if (needReload) continue;
+
     err = ch_get_edid(i2cdev, 0, &edid[0]);
     mon_timing = NULL;
     if (err < 0) {
+      if (ch_mcu_version(i2cdev, 0, verbose) < 0) {
+        if (verbose) printf("EDID error because Chrontel firmware lost\n");
+        needReload = 1;
+        continue;
+      }
+      /* EDID timed out, but things seem alive */
+      if (newFirmware) {
+        if (verbose)
+          printf("Ignore HPD because EDID failed just after firmware load\n");
+        sleep(5);
+        /* Loop back to recheck HPD after sleep */
+        continue;
+      }
       fprintf(stderr, "%s: Get EDID Failed (initial block) using 640x480@60\n",
-	      argv[0]);
-    }
-    else {
+              argv[0]);
+    } else if (!edid_valid(&edid[0])) {
+      if (newFirmware) {
+        if (verbose)
+          printf("Ignore HPD since EDID not valid just after firmware load\n");
+        sleep(5);
+        /* Loop back to recheck HPD after sleep */
+        continue;
+      }
+      fprintf(stderr, "%s: EDID is not valid, using 640x480@60\n",
+              argv[0]);
+    } else {
       if (edid[126] > 0)
         ch_get_edid(i2cdev, 1, &edid[128]);
 
@@ -674,15 +727,19 @@ int main(int argc, char *argv[])
           show_edid_data(&edid[128], 128, 128);
         show_edid(&edid[0], (edid[126] > 0) ? 1:0);
       }
-      if ((forcen_x == 0) && get_native(&edid[0], &prefer, &aspect))
+      if ((forcen_x == 0) && get_native(&edid[0], &prefer, &aspect, verbose))
 	mon_timing = &prefer;
       else 
-	get_standard(&edid[0], &mon_timing, &aspect, forcen_x, forcen_a);
+	get_standard(&edid[0], &mon_timing, &aspect, forcen_x, forcen_a, 
+                     verbose);
     }
+
+    newFirmware = 0;
 
     do {
       if (mon_timing == NULL) {
-	DEBUG(printf("%s: Fall back to default output 640x480@60\n", argv[0]));
+        if (verbose)
+          printf("%s: Fall back to default output 640x480@60\n", argv[0]);
 	/* First in table is default 640x480@60 */
 	mon_timing = known_modes;
 	aspect = ASPECT_4_3;
@@ -710,7 +767,7 @@ int main(int argc, char *argv[])
 	} else {
 	  /* Prefered timing didn't help us, try standard with no force */
 	  mon_timing = NULL;
-	  get_standard(&edid[0], &mon_timing, &aspect, 0, 0);
+          get_standard(&edid[0], &mon_timing, &aspect, 0, 0, verbose);
 	}
       }
     } while (err != 0);
@@ -728,18 +785,47 @@ int main(int argc, char *argv[])
     ch_write_reg(i2cdev, CH7036_AVIINFO3, 0x12);
     ch_calculate_incs(i2cdev);
     ch_monitor_on(i2cdev);
+    hdmiOn = 1;
 
     if (new_width != xmode->width)
       set_x_size(dpy, root, new_width, xmode->height, 1, bwin);
     if (verbose) printf("Monitor should be on!\n");
     do {
-      sleep(5);
-    } while (ch_hdmi_detected(i2cdev));
-    ch_monitor_off_keep_ddc(i2cdev);
+      CARD16 state;
+      BOOL onoff;
+
+      /* Check the Chrontel firmware is still alive */
+      /* Moved to outer loop because lid switch yanks power and kills fw */
+      /* without any chance for powerd to do it nicely */
+      if (ch_mcu_version(i2cdev, 0, 0) < 0) {
+        if (verbose) printf("Lost the Chrontel firmware\n");
+        needReload = 1;
+      } else {
+        DPMSInfo(dpy, &state, &onoff);
+        if ((state != DPMSModeOn) && hdmiOn) {
+          if (verbose) printf("DPMS is not on, turn off hdmi\n");
+          ch_monitor_off_keep_ddc(i2cdev);
+          hdmiOn = 0;
+        } else if ((state == DPMSModeOn) && !hdmiOn) {
+          if (verbose) printf("DPMS is on, turn on hdmi\n");
+          ch_monitor_on(i2cdev);
+          if (verbose) printf("Monitor back on with DPMS On\n");
+          hdmiOn = 1;
+        }
+      }
+      /* If we need a reload, don't wait! */
+      if (!needReload) sleep(5);
+    } while (!needReload && ch_hdmi_detected(i2cdev));
+    if (verbose) printf("Exit displaying needReload = %d, hdmiOn = %d\n", 
+                        needReload, hdmiOn);
     if (new_width != xmode->width)
       set_x_size(dpy, root, xmode->width, xmode->height, 0, bwin);
-    if (verbose) printf("Monitor should be off!\n");
-    sleep(2);	  
+    if (hdmiOn && !needReload) {
+      ch_monitor_off_keep_ddc(i2cdev);
+      hdmiOn = 0;
+      if (verbose) printf("Monitor should be off!\n");
+      sleep(2);
+    }
   }
   close(i2cdev);
   return 0;

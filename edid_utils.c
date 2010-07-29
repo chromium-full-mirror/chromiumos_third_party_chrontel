@@ -252,6 +252,15 @@ void show_cea_timing(unsigned char* edid_ext)
     show_edid_dtd(edid_ext + (off_dtd + 18*i));
 }
 
+
+int edid_valid(unsigned char *edid_data)
+{
+  return ((edid_data[0]==0x00) && (edid_data[1]==0xff) && 
+	  (edid_data[2]==0xff) && (edid_data[3]==0xff) && 
+	  (edid_data[4]==0xff) && (edid_data[5]==0xff) && 
+	  (edid_data[6]==0xff) && (edid_data[7]==0x00));
+}
+
 /* Print out an EDID */
 void show_edid(unsigned char *edid_data, int ext)
 {
@@ -260,9 +269,7 @@ void show_edid(unsigned char *edid_data, int ext)
   int edidrev = edid_data[19];
   unsigned char* edid_ext;
 
-  if (!((edid_data[0]==0x00) && (edid_data[1]==0xff) && (edid_data[2]==0xff) && 
-	(edid_data[3]==0xff) && (edid_data[4]==0xff) && (edid_data[5]==0xff) && 
-	(edid_data[6]==0xff) && (edid_data[7]==0x00))) {
+  if (!edid_valid(edid_data)) {
     printf("Block does not contain EDID header\n");
     return;
   }

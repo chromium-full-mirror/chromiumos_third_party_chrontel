@@ -442,12 +442,17 @@ int ch_load_firmware(int dev, char* fname)
 
 /* Note -- this only works if firmware is loaded */
 /* will time out if the firmware is not running  */
-int ch_mcu_version(int dev, int verbose)
+int ch_mcu_version(int dev, int newFirmware, int verbose)
 {
   unsigned char data[16];
   FW7036_CFG *config = (FW7036_CFG *) &data[0];
   struct timeval tv;
-  struct timeval tout = {0, 500000};
+  /* This timeout needs to be tuned. 500,000 works but is a bit */
+  /* long when trying to detect the firmware going away         */
+  /* 100,000 seems to sometimes give false timeouts             */
+  /* 200,000 is good except when the firmware is restarting     */
+  struct timeval tout = {0, 200000};
+  if (newFirmware) tout.tv_usec = 500000;
 
   ch7036_cur_page = -1;
 
@@ -473,9 +478,6 @@ int ch_mcu_version(int dev, int verbose)
     gettimeofday(&tv, NULL);
     if (timercmp(&tv, &tout, >)) {
       fprintf(stderr, "Timeout waiting for MCU version\n");
-      fprintf(stderr, "tv %d.%06d tout %d.%06d\n", 
-	      (int)tv.tv_sec, (int)tv.tv_usec, 
-	      (int)tout.tv_sec, (int)tout.tv_usec);
       return -1;
     }
   }
