@@ -8,6 +8,31 @@
  * @revision
 **/
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #include "GenTableCH7036.h"
 
 
@@ -82,6 +107,7 @@ typedef struct{
 	uint8 hs_pol;			
 	uint8 vs_pol;			
 	uint8 sfld_0018;	
+	uint8 sfld_0051;
 }IOT2_DFMT, *PIOT2_DFMT;
 
 typedef struct{
@@ -1119,6 +1145,32 @@ static uint32 append_reg(uint8 index, uint8 value)
 
 }
 
+static struct reg_ch7036 ch7036_lvds_only[] = {
+	{      0x03,    0x04 },
+	{	   0x58,    0x20 },    
+	{	   0x66,    0x04 },    
+	{	   0x67,	0xc0 },	  
+
+	{	   0x59,    0x60 },   
+
+	{	   0x54,    0xd4 },   
+	
+	{	   0x03,	0x01 },
+	{	   0x14,    0xd1 },   
+	{	   0x16,    0x21 },   
+	{      0x11,    0x88 },
+
+
+
+
+	{	   0x03,	0x00 },
+	{      0x07,    0x5F },
+	{      0x08,    0xFF },
+	{	   0x09,    0x7F },
+	{      0x0A,    0x34 },
+};
+
+#define ch7036_lvds_only_length  (sizeof(ch7036_lvds_only)/sizeof(struct reg_ch7036))
 
 
 
@@ -1313,6 +1365,8 @@ static void func_gen_0001()
 	
     append_reg(0x52, 0x2A);  
     append_reg(0x52, 0x2F);
+
+    append_reg(0x03, 0x00);
 }
 
 
@@ -1387,12 +1441,6 @@ static void func_gen_0003()
 
 
 
-   
-   
-   
-
-#undef POST_RUN_VIRTUAL_MODE
-
 
 
 
@@ -1430,10 +1478,6 @@ static ch_bool func_gen_0016(DEV_CONTEXT* pDevContext);
 
 static ch_bool func_gen_0017(DEV_CONTEXT* pDevContext);
 
-#ifdef POST_RUN_VIRTUAL_MODE
-
-static ch_bool func_gen_0018();
-#endif
 
 #ifdef __GNUC__
 
@@ -1807,16 +1851,7 @@ ch_bool func_gen_0019(DEV_CONTEXT* pDevContext)
 	
 	iic_reset();
 
-	
-	if(pInfo_T_0002->channel & CONST_0010 || pInfo_T_0002->channel & CONST_0011) 
-	{
-		
-		out_data(0x03, 0x01);
-		out_data(0x07, 0x7E);
-		out_data(0x09, 0x0B);
-		out_data(0x03, 0x00);
 
-	}
 
 	return ch_true;
 }
@@ -1858,44 +1893,16 @@ ch_bool func_gen_0021(DEV_CONTEXT* pDevContext)
 		func_gen_0002();
 
 		
-		func_gen_0003();
 
-#ifdef POST_RUN_VIRTUAL_MODE
-	
-		{
- 			if(!func_gen_0018())
-				return ch_false;
-		}	
-	if(pInfo_T_0002->channel & CONST_0010 || pInfo_T_0002->channel & CONST_0011) 
-	{
-		uint8 val_t;
 		
-		out_data(0x03, 0x00);
-		val_t = in_data(0x0A);
-		out_data(0x0A, val_t | 0x80);
-		out_data(0x0A, val_t & 0x7F);
-		
+		if(pDevContext->pInfo_T_0002->channel == CONST_0009) {
+			int u;
+			for (u=0; u< ch7036_lvds_only_length; u++) {
+				append_reg( ch7036_lvds_only[u].index, ch7036_lvds_only[u].value);
+			}
+		}
+		else func_gen_0003();
 
-
-			out_data(0x03, 0x04);
-			val_t = in_data(0x52);
-			out_data(0x52, val_t & 0xFE);
-		
-
-			if (g_mcurst) val_t |= 0x04;    
-			out_data(0x52, val_t | 0x01);
-			
-				
-		out_data(0x03, 0x00);
-		val_t = in_data(0x0A);
-		out_data(0x0A, val_t & 0xEF);
-
-			val_t = in_data(0x52);
-			val_t = val_t & 0xFB;
-			out_data(0x52, val_t);
-			out_data(0x52, val_t | 0x04);
-	}
-#endif
 	return ch_true;
 }
 
@@ -2019,9 +2026,8 @@ ch_bool func_gen_0013(OUTPUT_INFO* pInfo_T_0002)
 		out_data_ex(FLD0011, locvar_0027->pixel_fmt);
 	}
 	
-	if(pInfo_T_0002->channel & CONST_0011)
-	{
 
+	{ 
 		out_data_ex(FLD0042, 1);
 		out_data_ex(FLD0043, 0);
 		out_data_ex(FLD0044, 0);
@@ -2037,6 +2043,11 @@ ch_bool func_gen_0013(OUTPUT_INFO* pInfo_T_0002)
 		out_data_ex(FLD0054, 1);
 
 	}
+
+	locvar_0007 = pInfo_T_0002->sfld_iot02.sfld_0051;
+	
+	out_data( 0x3,  0x1);
+	out_data( 0x23, 0x00);
 
 	
 	if(pInfo_T_0002->channel & CONST_0010)
@@ -2060,7 +2071,7 @@ ch_bool func_gen_0013(OUTPUT_INFO* pInfo_T_0002)
 			locvar_0007 = 1;
 			break;
 		default:
-			locvar_0007 = 0;
+
 			break;		
 		}
 		out_data_ex(FLD0046, locvar_0007);
@@ -2122,12 +2133,19 @@ ch_bool func_gen_0013(OUTPUT_INFO* pInfo_T_0002)
 		
 		vic = locvar_0028->sfld_0015;
 		out_data_ex(FLD0057, vic);
-	}
+        
+		out_data( 0x3,  0x0);
+		out_data( 0x3F, 0x12);
+
+		
+		out_data( 0x3,  0x1);
 
 	
-	out_data( 0x3,  0x1);
-	out_data( 0x23, 0x63);
-	out_data( 0x3,  0x0);
+	
+		out_data( 0x23, 0x63);
+	}
+
+
 
 	return ch_true;
 }
@@ -2643,82 +2661,6 @@ ch_bool func_gen_0016(DEV_CONTEXT* pDevContext)
 	return ch_true;	
 }
 
-#ifdef POST_RUN_VIRTUAL_MODE
-ch_bool func_gen_0018()
-{
-	uint32 hdinc_reg, hdinca_reg, hdincb_reg;
-	uint32 hinc_reg, hinca_reg, hincb_reg;
-	uint32 vinc_reg, vinca_reg, vincb_reg;
-
-	uint32 val_t;
-
-	
-	out_data(0x03, 0x04);
-	
-	val_t = in_data(0x2A);
-	hinca_reg = (val_t << 3) | (in_data(0x2B) & 0x07);
-	
-	val_t = in_data(0x2C);
-	hincb_reg = (val_t << 3) | (in_data(0x2D) & 0x07);
-	
-	val_t = in_data(0x2E);
-	vinca_reg = (val_t << 3) | (in_data(0x2F) & 0x07);
-	
-	val_t = in_data(0x30);
-	vincb_reg = (val_t << 3) | (in_data(0x31) & 0x07);
-	
-	val_t = in_data(0x32); 
-	hdinca_reg = (val_t << 3) | (in_data(0x33) & 0x07);
-	
-	val_t = in_data(0x34);
-	hdincb_reg = (val_t << 3) | (in_data(0x35) & 0x07);
-
-	
-	out_data(0x03, 0x04);
-
-	
-	if(in_data_ex(FLD0104))
-	{
-		if(hdincb_reg == 0)
-		{
-			g_nLastError = 301;
-			return ch_false;
-		}
-
-		hdinc_reg = mul32div32(hdinca_reg, ( ((uint32)1) <<  20), hdincb_reg);
-		out_data(0x3C, (hdinc_reg >> 16) & 0xFF);
-		out_data(0x3D, (hdinc_reg >>  8) & 0xFF);
-		out_data(0x3E, (hdinc_reg >>  0) & 0xFF);
-	}
-	if(hincb_reg == 0 || vincb_reg == 0)
-	{
-		g_nLastError = 301;
-		return ch_false;
-	}
-	
-	if(hinca_reg > hincb_reg)
-	{
-		g_nLastError = 302;
-		return ch_false;
-	}
-
-
-	hinc_reg = mul32div32(hinca_reg, ( ((uint32)1) <<  20), hincb_reg);
-
-	vinc_reg = mul32div32(vinca_reg, ( ((uint32)1) <<  20), vincb_reg);
-
-	
-	out_data(0x36, (hinc_reg >> 16) & 0xFF);
-	out_data(0x37, (hinc_reg >>  8) & 0xFF);
-	out_data(0x38, (hinc_reg >>  0) & 0xFF);
-
-	out_data(0x39, (vinc_reg >> 16) & 0xFF);
-	out_data(0x3A, (vinc_reg >>  8) & 0xFF);
-	out_data(0x3B, (vinc_reg >>  0) & 0xFF);
-
-	return ch_true;
-}
-#endif
 
 ch_bool func_gen_0017(DEV_CONTEXT* pDevContext)
 {
@@ -2728,13 +2670,14 @@ ch_bool func_gen_0017(DEV_CONTEXT* pDevContext)
 	uint8 locvar_0068 = 1;
 	uint8 locvar_0068_ser = 1;
 	uint8 locvar_0068_pll = 1;
-	uint8 locvar_0068dri = 7;
+	uint8 locvar_0068dri = 0xF;
 
 
-	uint8 locvar_0072 = 0;
+
+	uint8 locvar_0072 = 1;  
 
 
-	uint8 locvar_0073 = 0;   
+	uint8 locvar_0073 = 1;   
 	
 	uint8 locvar_0074 = 1;
 	uint8 locvar_0075 = 63;
@@ -2748,7 +2691,8 @@ ch_bool func_gen_0017(DEV_CONTEXT* pDevContext)
 	uint8 locvar_0083 = 1;
 
 
-	uint8 locvar_0084 = 0;  
+
+	uint8 locvar_0084 = 1;  
 
 	uint8 locvar_0085 = 1;
 	uint8 locvar_0086 = 1;
@@ -2812,8 +2756,15 @@ ch_bool func_gen_0017(DEV_CONTEXT* pDevContext)
 		locvar_0089 = 0;
 		locvar_0090 = 0;
 	}
-	if(pInfo_T_0002->channel & CONST_0011)
-	{
+	else {  
+		
+		out_data(0x03, 0x01);
+		out_data(0x0D, (0x80 | in_data(0x0D)));
+		out_data(0x16, (0x01 | in_data(0x16)));
+	}
+
+
+	if (pInfo_T_0002->channel & CONST_0011) {
 		locvar_0075 = 0;
 		locvar_0076 = 0;
 		locvar_0080 = 0;
@@ -2826,6 +2777,25 @@ ch_bool func_gen_0017(DEV_CONTEXT* pDevContext)
 		locvar_0089 = 0;
 		locvar_0090 = 0;
 		locvar_0091 = 1;
+	}
+	else {
+		out_data(0x03, 0x04);
+		out_data(0x57, 0x02);  
+	}
+
+	
+	if(0==(pInfo_T_0002->channel & (CONST_0011 | CONST_0010)))
+	{
+		
+		out_data(0x03, 0x01);
+		out_data(0x11, (0x80 | in_data(0x11)));
+		out_data(0x03, 0x04);
+		out_data(0x54, (0x10 | in_data(0x54)));
+
+		out_data(0x03, 0x00);
+		out_data(0x07, 0x5F);
+		out_data(0x08, 0xFF);
+		out_data(0x09, 0x7F);
 	}
 
 	
@@ -3309,6 +3279,7 @@ static void func_gen_0023(OUTPUT_INFO* pInfo_T_0002, struct timing_ch7036* pHdmi
 	pInfo_T_0002->sfld_iot02.hs_pol = pHdmiOutput->hs_pol;
 	pInfo_T_0002->sfld_iot02.vs_pol = pHdmiOutput->vs_pol;
 	pInfo_T_0002->sfld_iot02.sfld_0018 = 0;
+	pInfo_T_0002->sfld_iot02.sfld_0051 = (PIXEL_HDMI_ENCODE_INTERLACE & pHdmiOutput->pixel_fmt) ? 1 : 0;;  
 
 
 	pInfo_T_0002->sfld_0020 = SCALE_HDOWN(pHdmiOutput->scale); 
@@ -3334,9 +3305,20 @@ static void func_gen_0024(PREFER_INFO* pInfo_T_0003)
 }
 
 
+
 uint32 GenTableCH7036( struct timing_ch7036* pLvdsInput, 
 					   struct timing_ch7036* pHdmiOutput,
 					   struct reg_ch7036**   ppRegTable
+					   )
+{
+	return GenTableCH7036_outcfg(pLvdsInput, pHdmiOutput, ppRegTable, 
+		                         OUTCFG_LVDS | OUTCFG_HDMI);
+
+}
+uint32 GenTableCH7036_outcfg( struct timing_ch7036* pLvdsInput, 
+					   struct timing_ch7036* pTimingOutput,
+					   struct reg_ch7036**   ppRegTable,
+                       unsigned int outcfg
 					   )
 {
 	INPUT_INFO input_info;
@@ -3349,7 +3331,8 @@ uint32 GenTableCH7036( struct timing_ch7036* pLvdsInput,
 	
 	
 		func_gen_0022(&input_info, pLvdsInput);
-		func_gen_0023(&output_info, pHdmiOutput);
+		func_gen_0023(&output_info, pTimingOutput);
+		output_info.channel = outcfg & 0x07;
 		func_gen_0024(&prefer_info);
 		DevContext.pInfo_T_0001 = &input_info;
 		DevContext.pInfo_T_0002 = &output_info;
@@ -3410,7 +3393,8 @@ uint32 GenTableCH7036( struct timing_ch7036* pLvdsInput,
 			last_error= GetLastErrorMessage();
 			return last_error;
 		}
-
+        
+		if (DevContext.pInfo_T_0002->channel != CONST_0009)
 		{
 			uint8 val_t;
 
@@ -3425,7 +3409,8 @@ uint32 GenTableCH7036( struct timing_ch7036* pLvdsInput,
 			val_t &= 0xEF;
 			append_reg(0x0A, val_t);
 		}
-        
+
+		
 		func_gen_0001();
 		
 		if (ppRegTable) *ppRegTable = global_arr_005;

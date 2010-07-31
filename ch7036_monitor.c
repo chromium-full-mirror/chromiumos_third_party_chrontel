@@ -310,7 +310,11 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
 	  (seen_pref && interlace && ((mdflg & 0x80) == 0))) {
 	prefer->clk_khz = pelclk * 10;
 	/* FIXME mdhayter need to look for extension for DVI/HDMI */
-	prefer->pixel_fmt = PIXEL_HDMI_ENCODE_DVI;
+	if (mdflg & 0x80)
+	  prefer->pixel_fmt = (PIXEL_HDMI_ENCODE_DVI | 
+			       PIXEL_HDMI_ENCODE_INTERLACE);
+	else
+	  prefer->pixel_fmt = PIXEL_HDMI_ENCODE_DVI;
 	prefer->hs_pol = (mdflg & 2) ? POL_HIGH : POL_LOW;
 	prefer->vs_pol = (mdflg & 4) ? POL_HIGH : POL_LOW;
 	prefer->de_pol = POL_HIGH;
@@ -779,10 +783,6 @@ int main(int argc, char *argv[])
     ch_restore_notin_seq(i2cdev, reglist);
     if (verbose) printf("Program registers:\n");
     ch_write_reg_sequence(i2cdev, reglist);
-    /* Chrontel code seems to set the AVI infoframe for TV (overscan) */
-    /* this causes some monitors to crop the edges and resize         */
-    /* Fix here to use Computer (underscan) mode                      */
-    ch_write_reg(i2cdev, CH7036_AVIINFO3, 0x12);
     ch_calculate_incs(i2cdev);
     ch_monitor_on(i2cdev);
     hdmiOn = 1;

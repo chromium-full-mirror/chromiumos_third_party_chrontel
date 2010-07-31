@@ -9,6 +9,19 @@
  * @revision
 **/
 
+/*
+ Changes:
+    07/02/2010:   Roger Yu.
+		1) Add GenTableCH7036_outcfg() so the output can be configured as 
+		   LVDS and HDMI seperatly or both. The resgiter table will be much shorter when
+		   LVDS only.
+		2) AVI Infoframe Scan inofrmation default to underscan. (Note: many TV
+		   actaully will not underscane even AVI info frame specifies. You may need
+		   use MK_SCALE to make sure underscan on all TV).
+		3) add MK_PIXEL_HDMI_INT so the output can be force to be interlace for special purpose   
+		4) Tune the power control bits for different outcfg mode to save power.   
+				
+*/
 
 #ifndef _GENTABLE_CH7036_H
 #define _GENTABLE_CH7036_H
@@ -61,6 +74,8 @@ typedef uint32					ch_bool;
 #define PIXEL_FMT_24BIT		1
 // pixel format definition for HDMI/DVI output
 //  bit[15:0] indicates HDMI pixel format/mode, bit[16] indicate is DVI(1) or HDMI(0)
+//  bit[17] indicates force interlace
+
 #define PIXEL_HDMI_ENCODE_DVI	0x10000
 #define PIXEL_HDMI_FOTMAT(x)	(0xFF & (x))
 #define MK_PIXEL_HDMI_FORMAT(x) (0xFF & (x))
@@ -68,7 +83,11 @@ typedef uint32					ch_bool;
 #define PIXEL_HDMI_ASPECT(x)	 ((0xFF00 & (x))>>8)
 #define MK_PIXEL_HDMI_ASPECT(x) (((x) & 0xFF)<<8)
 
+#define PIXEL_HDMI_ENCODE_INTERLACE	0x20000
+
 #define MK_PIXEL_HDMI(dvi,fmt,aspect)  ( (((dvi) & 0x01)<<16)+(((aspect) & 0xFF)<<8)+ ((fmt) & 0xFF) ) 
+#define MK_PIXEL_HDMI_INT(dvi,fmt,aspect)  ( PIXEL_HDMI_ENCODE_INTERLACE +(((dvi) & 0x01L)<<16)+(((aspect) & 0xFF)<<8)+ ((fmt) & 0xFF) ) 
+
 // polarity
 #define POL_HIGH			1
 #define POL_LOW				0
@@ -108,22 +127,36 @@ typedef struct reg_ch7036 {
 #define IDX_SIZE 0xF0
 #define IDX_PAGE 0xE0
 
+#define IDX_END		0xff
+#define IDX_CLR		0xfe
+#define IDX_SET		0xfd
+#define IDX_READ	0xfc
+
 
 //////////////////////////////////////////////////////////////////////////
 //Error type define: easy for return error message to user:
 #define ERR_NO_ERROR						0
 
 
+// output display config
+#define OUTCFG_LVDS	0x01
+#define OUTCFG_HDMI	0x02
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// functon implemented in GenTableCH7036_mxx.s
 
 // return ERR_xxx 
 uint32 GenTableCH7036( struct timing_ch7036* pLvdsInput, 
 					   struct timing_ch7036* pHdmiOutput,
 					   struct reg_ch7036**   ppRegTable
+					   );
+					   
+uint32 GenTableCH7036_outcfg( struct timing_ch7036* pLvdsInput, 
+					   struct timing_ch7036* pHdmiOutput,
+					   struct reg_ch7036**   ppRegTable,
+                       unsigned int outcfg
 					   );
 
 // return default value of register
