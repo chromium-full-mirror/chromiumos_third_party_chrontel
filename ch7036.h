@@ -8,6 +8,9 @@
 
 #include "GenTableCH7036.h"
 
+/* First entry in a struct reg_ch7036 register sequence is the length */ 
+#define N_REGS_IN_SEQ(s) (((s[0].index & 0xf) << 8) + s[0].value)
+
 #define CH7036_I2C_ADDR 0x76
 
 #define EXPECTED_CH7036_DEVID 0x56
@@ -76,6 +79,7 @@ int ch_write_reg(int dev, int page, int reg, int data);
 int ch_read_reg(int dev, int page, int reg);
 int ch_write_reg_sequence (int dev, struct reg_ch7036* seq);
 int ch_restore_notin_seq (int dev, struct reg_ch7036* seq);
+int ch_change_reg(struct reg_ch7036* seq, int page, int reg, int value);
 void ch_reset_datapath (int dev);
 void ch_reset_todefault (int dev);
 void ch_monitor_on(int dev);

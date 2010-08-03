@@ -34,7 +34,7 @@
 
 #define DEF_DEV "/dev/i2c-2"
 #define DEF_FW "/lib/firmware/chrontel/fw7036.bin"
-
+#define EDID_LOG "/var/log/hdmi_edid.log"
 
 /* Width fixups for supported displays */
 int width_fix_1366x768[4] = {1366, 1024, 960, 1366};
@@ -281,35 +281,53 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
   int seen_pref = 0;
   int interlace = 0;
   int i;
+  int n_dtds = 4;
+  int has_hdmi = edid_has_hdmi_info(data, data[126] ? 1:0);
+  
+  if (has_hdmi)
+    n_dtds += data[128+3] & 0xf;
 
-  for(i = 0; i < 4; i++) {
-    int pelclk = data[54 + 18*i] + (data[55 + 18*i]<<8);
+  for(i = 0; i < n_dtds; i++) {
+    int pelclk;
+    unsigned char* base;
+
+    if (i < 4)
+      base = data + 54 + 18*i;
+    else
+      base = data + 128 + data[130] + 18*(i-4);
+
+    pelclk = base[0] + (base[1]<<8);
     
-    if ((pelclk != 0)) {
-      int hres = data[56 + 18*i] + ((data[58 + 18*i] & 0xf0)<<4);
-      int hbl = data[57 + 18*i] + ((data[58 + 18*i] & 0x0f)<<8);
-      int vres = data[59 + 18*i] + ((data[61 + 18*i] & 0xf0)<<4);
-      int vbl = data[60 + 18*i] + ((data[61 + 18*i] & 0x0f)<<8);
-      int hso = data[62 + 18*i] + ((data[65 + 18*i] & 0xc0)<<2);
-      int hsw = data[63 + 18*i] + ((data[65 + 18*i] & 0x30)<<4);
-      int vso = (data[64 + 18*i] >> 4) + ((data[65 + 18*i] & 0x0c)<<2);
-      int vsw = (data[64 + 18*i] & 0xf)+ ((data[65 + 18*i] & 0x03)<<4);
-      int hsiz = data[66 + 18*i] + ((data[68 + 18*i] & 0xf0)<<4);
-      int vsiz = data[67 + 18*i] + ((data[68 + 18*i] & 0x0f)<<8);
-      // int hbdr = data[69 + 18*i];
-      // int vbdr = data[70 + 18*i];
-      int mdflg = data[71 + 18*i];
+    if (pelclk != 0) {
+      int hres = base[2] + ((base[4] & 0xf0)<<4);
+      int hbl = base[3] + ((base[4] & 0x0f)<<8);
+      int vres = base[5] + ((base[7] & 0xf0)<<4);
+      int vbl = base[6] + ((base[7] & 0x0f)<<8);
+      int hso = base[8] + ((base[11] & 0xc0)<<2);
+      int hsw = base[9] + ((base[11] & 0x30)<<4);
+      int vso = (base[10] >> 4) + ((base[11] & 0x0c)<<2);
+      int vsw = (base[10] & 0xf) + ((base[11] & 0x03)<<4);
+      int hsiz = base[12] + ((base[14] & 0xf0)<<4);
+      int vsiz = base[13] + ((base[14] & 0x0f)<<8);
+      //int hbdr = base[15];
+      //int vbdr = base[16];
+      int mdflg = base[17];
 
       //int refr = (pelclk * 10000)/((hres+hbl)*(vres+vbl));
       //int refm = (pelclk * 10000)%((hres+hbl)*(vres+vbl));
       //int refd = (refm*100)/((hres+hbl)*(vres+vbl));
 
-      /* Seen some devices that list interlaced mode first */
+      /* First encountered is the preferred and native */
+      /* BUT: Seen some devices that list interlaced mode first */
       /* If they also have non-interlaced then use that    */
+      /* HDMI monitors don't seem to obey this, there may be a better */
+      /* mode in the extension block, look for something wider */
       if ((!seen_pref) || 
-	  (seen_pref && interlace && ((mdflg & 0x80) == 0))) {
+	  (seen_pref && interlace && ((mdflg & 0x80) == 0)) ||
+          (seen_pref && has_hdmi && 
+           ((mdflg & 0x80) == 0) && (hres > prefer->ha))) {
+
 	prefer->clk_khz = pelclk * 10;
-	/* FIXME mdhayter need to look for extension for DVI/HDMI */
 	if (mdflg & 0x80)
 	  prefer->pixel_fmt = (PIXEL_HDMI_ENCODE_DVI | 
 			       PIXEL_HDMI_ENCODE_INTERLACE);
@@ -347,7 +365,6 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
 	    *aspect = ASPECT_4_3;
 	  }
 	}
-	/* First encountered is the preferred and native */
 	seen_pref = 1;
       }
     }
@@ -650,7 +667,12 @@ int main(int argc, char *argv[])
 
   while (1) {
     int new_width;
-
+    FILE* edidlog;
+    char *why_res = "nothing";
+    if ((edidlog = fopen(EDID_LOG, "w")) != NULL) {
+      fprintf(edidlog, "No HDMI device detected\n");
+      fclose(edidlog);
+    }
     if (needReload) {
       int mcutry = 0;
       /* This also intializes the changed vector */
@@ -711,6 +733,7 @@ int main(int argc, char *argv[])
       }
       fprintf(stderr, "%s: Get EDID Failed (initial block) using 640x480@60\n",
               argv[0]);
+      why_res = "default resolution because EDID could not be read";
     } else if (!edid_valid(&edid[0])) {
       if (newFirmware) {
         if (verbose)
@@ -721,21 +744,36 @@ int main(int argc, char *argv[])
       }
       fprintf(stderr, "%s: EDID is not valid, using 640x480@60\n",
               argv[0]);
+      why_res = "default resolution because EDID is not valid";
     } else {
       if (edid[126] > 0)
         ch_get_edid(i2cdev, 1, &edid[128]);
 
       if (verbose) {
-        show_edid_data(&edid[0], 128, 0);
+        show_edid_data(stdout, &edid[0], 128, 0);
         if (edid[126] > 0)
-          show_edid_data(&edid[128], 128, 128);
-        show_edid(&edid[0], (edid[126] > 0) ? 1:0);
+          show_edid_data(stdout, &edid[128], 128, 128);
+        show_edid(stdout, &edid[0], (edid[126] > 0) ? 1:0);
       }
-      if ((forcen_x == 0) && get_native(&edid[0], &prefer, &aspect, verbose))
+      if ((forcen_x == 0) && get_native(&edid[0], &prefer, &aspect, verbose)){
 	mon_timing = &prefer;
-      else 
+        why_res = "preferred/native resolution requested in EDID";
+     
+        /* HDMI TVs tend to assume overscan (i.e. junk round the real frame)*/
+        /* even when we tell them otherwise with the AVI INFO frame         */
+        /* even if they set the 'underscan' flag that says they should      */
+        /* If the EDID has an HDMI extension then assume this badness       */
+        /* unless it is not 16:9 because most monitors are well behaved     */
+        if (edid_has_hdmi_info(&edid[0], (edid[126] > 0) ? 1:0) &&
+            aspect == ASPECT_16_9) {
+          prefer.scale = MK_SCALE(6, 5);
+          why_res = "preferred resolution in EDID scaled for overscan";
+        }
+      } else {
 	get_standard(&edid[0], &mon_timing, &aspect, forcen_x, forcen_a, 
                      verbose);
+        why_res = "best standard resolution supported in EDID";
+      }
     }
 
     newFirmware = 0;
@@ -744,6 +782,7 @@ int main(int argc, char *argv[])
       if (mon_timing == NULL) {
         if (verbose)
           printf("%s: Fall back to default output 640x480@60\n", argv[0]);
+        why_res = "default resolution because nothing better was identified";
 	/* First in table is default 640x480@60 */
 	mon_timing = known_modes;
 	aspect = ASPECT_4_3;
@@ -782,6 +821,10 @@ int main(int argc, char *argv[])
     if (verbose) printf("Restore defaults:\n");
     ch_restore_notin_seq(i2cdev, reglist);
     if (verbose) printf("Program registers:\n");
+    if (mon_timing->scale != MK_SCALE(0,0)) {
+      int res = ch_change_reg(reglist, CH7036_AVIINFO3, 0x11);
+      if (verbose) printf("Change AVIINFO3 from 0x%2x to 0x%2x\n", res, 0x11);
+    }
     ch_write_reg_sequence(i2cdev, reglist);
     ch_calculate_incs(i2cdev);
     ch_monitor_on(i2cdev);
@@ -790,6 +833,19 @@ int main(int argc, char *argv[])
     if (new_width != xmode->width)
       set_x_size(dpy, root, new_width, xmode->height, 1, bwin);
     if (verbose) printf("Monitor should be on!\n");
+    if ((edidlog = fopen(EDID_LOG, "w")) != NULL) {
+      fprintf(edidlog, "HDMI output %dx%d%s. Use %dx%d on local LCD.\n",
+              mon_timing->ha, mon_timing->va,
+              (mon_timing->scale != MK_SCALE(0,0)) ? "(scaled)":"",
+              new_width, xmode->height);
+      fprintf(edidlog, "Use %s\n\n", why_res);
+      fprintf(edidlog, "EDID Data read from HDMI:\n");
+      show_edid_data(edidlog, &edid[0], 128, 0);
+      if (edid[126] > 0)
+        show_edid_data(edidlog, &edid[128], 128, 128);
+      show_edid(edidlog, &edid[0], (edid[126] > 0) ? 1:0);
+      fclose(edidlog);
+    }
     do {
       CARD16 state;
       BOOL onoff;

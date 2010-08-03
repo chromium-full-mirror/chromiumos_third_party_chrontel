@@ -1,0 +1,9 @@
+# Copyright (c) 2010 The Chromium OS Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+# this file is put in the userfeedback/etc directory by the installer
+# it is read by the feedback and about:system generator to cause an
+# entry for hdmi_edid to be generated as a copy of the log file
+
+hdmi_edid,cat /var/log/hdmi_edid.log

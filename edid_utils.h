@@ -13,8 +13,10 @@
 #define N_ASPECTS    4
 
 int edid_valid(unsigned char *edid_data);
-void show_edid_data(unsigned char *edid_data, int items, int base);
-void show_edid(unsigned char *edid_data, int ext);
+int edid_has_hdmi_info(unsigned char *edid_data, int ext);
+void show_edid_data(FILE *outfile, unsigned char *edid_data, 
+                    int items, int base);
+void show_edid(FILE *outfile, unsigned char *edid_data, int ext);
 int find_aspect(int h, int v);
 int find_aspect_fromisize(unsigned char *edid_data);
 extern char *aspect_to_str[];

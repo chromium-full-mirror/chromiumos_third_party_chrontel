@@ -253,9 +253,9 @@ int main(int argc, char *argv[])
 	extern unsigned char test_edid1[];
 	extern unsigned char test_edid2[];
 	printf("Test EDID 1\n");
-	show_edid(test_edid1, 0);
+	show_edid(stdout, test_edid1, 0);
 	printf("Test EDID 2\n");
-	show_edid(test_edid2, 0);
+	show_edid(stdout, test_edid2, 0);
 	break;
     }
     case 'e':
@@ -269,7 +269,7 @@ int main(int argc, char *argv[])
 	  fprintf(stderr, "Get EDID Failed (initial block)\n");
 	  exit(1);
 	}
-	show_edid_data(&edid[0], 128, 0);
+	show_edid_data(stdout, &edid[0], 128, 0);
 	ext = edid[126]; // Number of extension blocks
 	if (ext > MAX_EDID_EXT) {
 	  fprintf(stderr, "Too many EDID extensions (%d), using %d\n",
@@ -282,9 +282,9 @@ int main(int argc, char *argv[])
 	    fprintf(stderr, "Get EDID Failed (extension block %d)\n", i);
 	    exit(1);
 	  }
-	  show_edid_data(&edid[i*128], 128, i * 128);
+	  show_edid_data(stdout, &edid[i*128], 128, i * 128);
 	}
-	show_edid(&edid[0], ext);
+	show_edid(stdout, &edid[0], ext);
       }
       break;
     }

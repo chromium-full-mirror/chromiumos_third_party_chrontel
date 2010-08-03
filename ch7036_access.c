@@ -196,7 +196,7 @@ int ch_read_reg(int dev, int page, int reg)
 int ch_write_reg_sequence (int dev, struct reg_ch7036* seq)
 {
   int i, res;
-  int n_regs = ((seq[0].index & 0xf) << 8) + seq[0].value;
+  int n_regs = N_REGS_IN_SEQ(seq);
 
   for (i=1; i <= n_regs; i++) {
     res = smbus_write_byte_data(dev, seq[i].index, seq[i].value);
@@ -213,7 +213,7 @@ int ch_write_reg_sequence (int dev, struct reg_ch7036* seq)
 int ch_restore_notin_seq (int dev, struct reg_ch7036* seq)
 {
   int i, j;
-  int n_regs = ((seq[0].index & 0xf) << 8) + seq[0].value;
+  int n_regs = N_REGS_IN_SEQ(seq);
   int loc_cp = ch7036_cur_page;
   int err;
 
@@ -232,6 +232,25 @@ int ch_restore_notin_seq (int dev, struct reg_ch7036* seq)
       }
   return 0;
 }
+
+int ch_change_reg(struct reg_ch7036* seq, int page, int reg, int value)
+{
+  int i;
+  int n_regs = N_REGS_IN_SEQ(seq);
+  int cp = -1;
+
+  for (i=1; i <= n_regs; i++) {
+    if ((cp == page) && (seq[i].index == reg)) {
+      int ov = seq[i].value;
+      seq[i].value = value;
+      return ov;
+    }
+    if (seq[i].index == CH7036_PAGE) 
+      cp = ch_page_revmap[seq[i].value & 7];
+  }
+  return -1;
+}
+
 
 void ch_reset_datapath (int dev)
 {

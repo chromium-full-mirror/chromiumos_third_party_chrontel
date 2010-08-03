@@ -9,18 +9,19 @@
 #include "edid_utils.h"
 
 /* Dump out an EDID block in a simple format */
-void show_edid_data(unsigned char *edid_data, int items, int base)
+void show_edid_data(FILE* outfile, unsigned char* edid_data, 
+                    int items, int base)
 {
   int item = 0;
 
   while (item < items) {
     int i;
-    printf(" 0x%04x:  ", item + base);
+    fprintf(outfile, " 0x%04x:  ", item + base);
     for(i=0; i < 16; i++) {
-      printf("%02x ", edid_data[item++]);
+      fprintf(outfile, "%02x ", edid_data[item++]);
       if (item >= items) break;
     }
-    printf("\n");
+    fprintf(outfile, "\n");
   }
 }
 
@@ -65,7 +66,7 @@ unsigned char test_edid2[128] = {
 
 
 /* Print an edid descriptor block (standard case is at 54 + 18*i) */
-void show_edid_dtd(unsigned char* base)
+void show_edid_dtd(FILE* outfile, unsigned char* base)
 {
   int pelclk = base[0] + (base[1]<<8);
     
@@ -90,17 +91,18 @@ void show_edid_dtd(unsigned char* base)
     int refm = (pelclk * 10000)%((hres+hbl)*(vres+vbl));
     int refd = (refm*100)/((hres+hbl)*(vres+vbl));
 
-    printf("%dx%d%c@%d.%02d, dot clock %d  %cHsync %cVsync\n", 
-	   hres, vres, (mdflg & 0x80) ? 'i':'p', 
-	   refr, refd,
-	   pelclk * 10000,
-	   (mdflg & 0x2) ? '+':'-',
-	   (mdflg & 0x4) ? '+':'-');
-    printf("H: start %d, end %d, total %d\n",
-	   hres+hso, hres+hso+hsw, hres+hbl);
-    printf("V: start %d, end %d, total %d\n",
-	   vres+vso, vres+vso+vsw, vres+vbl);
-    printf("Size %dx%dmm, Border %dx%d pixels\n", hsiz, vsiz, hbdr, vbdr);
+    fprintf(outfile, "%dx%d%c@%d.%02d, dot clock %d  %cHsync %cVsync\n", 
+            hres, vres, (mdflg & 0x80) ? 'i':'p', 
+            refr, refd,
+            pelclk * 10000,
+            (mdflg & 0x2) ? '+':'-',
+            (mdflg & 0x4) ? '+':'-');
+    fprintf(outfile, "H: start %d, end %d, total %d\n",
+            hres+hso, hres+hso+hsw, hres+hbl);
+    fprintf(outfile, "V: start %d, end %d, total %d\n",
+            vres+vso, vres+vso+vsw, vres+vbl);
+    fprintf(outfile, "Size %dx%dmm, Border %dx%d pixels\n", 
+            hsiz, vsiz, hbdr, vbdr);
   } else { 
     char monstr[18];
     int stp;
@@ -113,19 +115,19 @@ void show_edid_dtd(unsigned char* base)
       for(stp = 0; stp < 13; stp++) if (monstr[stp] == 0x0a) monstr[stp] = 0;
       monstr[stp] = 0;
       if (base[3] != 0xfe)
-	printf("%s: %s\n", 
-	       (base[3] == 0xfc) ? "Name" : "Serial", monstr);
+        fprintf(outfile, "%s: %s\n", 
+                (base[3] == 0xfc) ? "Name" : "Serial", monstr);
       else
-	printf("%s\n", monstr);
+        fprintf(outfile, "%s\n", monstr);
       break;
 
     case 0xfd:
-      printf("Range V %d - %d Hz, H %d - %d kHz, Pel <= %d MHz\n",
-	     base[5], base[6], base[7], base[8], base[9]*10);
+      fprintf(outfile, "Range V %d - %d Hz, H %d - %d kHz, Pel <= %d MHz\n",
+              base[5], base[6], base[7], base[8], base[9]*10);
       break;
 
     default:
-      printf("Undecoded descriptor block type 0x%x\n", base[3]);
+      fprintf(outfile, "Undecoded descriptor block type 0x%x\n", base[3]);
       break;
     }
   }
@@ -138,24 +140,27 @@ char *sad_audio_type[16] = {
   "ATRAC", "SACD", "DD+", "DTS-HD",
   "MLP/Dolby TrueHD", "DST Audio", "WMA Pro", "Reserved"};
 
-void show_cea_timing(unsigned char* edid_ext)
+void show_cea_timing(FILE* outfile, unsigned char* edid_ext)
 {
   int i, dbc;
   int off_dtd = edid_ext[2];
   int n_dtd = edid_ext[3] & 0xf;
-  printf("Found CEA EDID Timing Extension rev 3\n");
+  fprintf(outfile, "Found CEA EDID Timing Extension rev 3\n");
 
   if (off_dtd < 4) {
-    printf("Block is empty (off_dtd = %d, n_dtd = %d\n", off_dtd, n_dtd);
+    fprintf(outfile, "Block is empty (off_dtd = %d, n_dtd = %d\n", 
+            off_dtd, n_dtd);
     return;
   }
-  printf("Block has %d DTDs starting at offset %d (thus %d bytes of DBCs)\n",
-	 n_dtd, off_dtd, off_dtd - 4);
-  printf("Support: %sunderscan, %sbasic audio, %sYCrCb 4:4:4, %sYCrCb 4:2:2\n",
-	 (edid_ext[3] & 0x80) ? "" : "no ",
-	 (edid_ext[3] & 0x40) ? "" : "no ",
-	 (edid_ext[3] & 0x20) ? "" : "no ",
-	 (edid_ext[3] & 0x10) ? "" : "no ");
+  fprintf(outfile, 
+          "Block has %d DTDs starting at offset %d (thus %d bytes of DBCs)\n",
+          n_dtd, off_dtd, off_dtd - 4);
+  fprintf(outfile, 
+          "Support: %sunderscan, %sbasic audio, %sYCrCb 4:4:4, %sYCrCb 4:2:2\n",
+          (edid_ext[3] & 0x80) ? "" : "no ",
+          (edid_ext[3] & 0x40) ? "" : "no ",
+          (edid_ext[3] & 0x20) ? "" : "no ",
+          (edid_ext[3] & 0x10) ? "" : "no ");
 
   /* Between offset 4 and off_dtd is the Data Block Collection */
   /* There may be none, in which case off_dtd == 4             */
@@ -170,24 +175,24 @@ void show_cea_timing(unsigned char* edid_ext)
       /* Audio Data Block */
       while (dbp < (dbc + db_len + 1)) {
 	int atype =(edid_ext[dbp]>>3) & 0xf;
-	printf("Audio: %d channel %s: ", edid_ext[dbp] & 0x7,
-	       sad_audio_type[atype]);
+        fprintf(outfile, "Audio: %d channel %s: ", edid_ext[dbp] & 0x7,
+                sad_audio_type[atype]);
 	dbp++;
-	if (edid_ext[dbp] & 0x40) printf("192k ");
-	if (edid_ext[dbp] & 0x20) printf("176k ");
-	if (edid_ext[dbp] & 0x10) printf("96k ");
-	if (edid_ext[dbp] & 0x08) printf("88k ");
-	if (edid_ext[dbp] & 0x04) printf("48k ");
-	if (edid_ext[dbp] & 0x02) printf("44k ");
-	if (edid_ext[dbp] & 0x01) printf("32k ");
-	dbp++;
-	if (atype == 1)
-	  printf("%s%s%s\n",
-		 (edid_ext[dbp] & 0x4) ? "24 bit":"",
-		 (edid_ext[dbp] & 0x2) ? "20 bit":"",
-		 (edid_ext[dbp] & 0x1) ? "16 bit":"");
+        if (edid_ext[dbp] & 0x40) fprintf(outfile, "192k ");
+        if (edid_ext[dbp] & 0x20) fprintf(outfile, "176k ");
+        if (edid_ext[dbp] & 0x10) fprintf(outfile, "96k ");
+        if (edid_ext[dbp] & 0x08) fprintf(outfile, "88k ");
+        if (edid_ext[dbp] & 0x04) fprintf(outfile, "48k ");
+        if (edid_ext[dbp] & 0x02) fprintf(outfile, "44k ");
+        if (edid_ext[dbp] & 0x01) fprintf(outfile, "32k ");
+        dbp++;
+        if (atype == 1)
+          fprintf(outfile, "%s%s%s\n",
+                  (edid_ext[dbp] & 0x4) ? "24-bit ":"",
+                  (edid_ext[dbp] & 0x2) ? "20-bit ":"",
+                  (edid_ext[dbp] & 0x1) ? "16-bit":"");
 	else
-	  printf("Max %dkHz\n", edid_ext[dbp] * 8);
+          fprintf(outfile, "Max %dkHz\n", edid_ext[dbp] * 8);
 	dbp++;
       }
       break;
@@ -196,8 +201,8 @@ void show_cea_timing(unsigned char* edid_ext)
       /* Vidio Data Block */
       while (dbp < (dbc + db_len + 1)) {
 	int vtype = edid_ext[dbp] & 0x7f;
-	printf("Video: Code %d %s\n", vtype,
-	       (edid_ext[dbp] & 0x80) ? "(native)":"");
+        fprintf(outfile, "Video: Code %d %s\n", vtype,
+                (edid_ext[dbp] & 0x80) ? "(native)":"");
 	dbp++;
       }
       break;
@@ -207,49 +212,51 @@ void show_cea_timing(unsigned char* edid_ext)
       if ((edid_ext[dbp+0] == 0x03) && 
 	  (edid_ext[dbp+1] == 0x0C) && 
 	  (edid_ext[dbp+2] == 0x00)) {
-	printf("HDMI Vendor block (CEC @0x%04x):\nSupport: %s%s%s%s%s%s\n",
-	       edid_ext[dbp+3] + (edid_ext[dbp+4]<<8),
-	       (edid_ext[dbp+5] & 0x80) ? "AI ":"",
-	       (edid_ext[dbp+5] & 0x40) ? "DC_48bit ":"",
-	       (edid_ext[dbp+5] & 0x20) ? "DC_36bit ":"",
-	       (edid_ext[dbp+5] & 0x10) ? "DC_30bit ":"",
-	       (edid_ext[dbp+5] & 0x08) ? "DC_Y444 ":"",
-	       (edid_ext[dbp+5] & 0x01) ? "DVI_Dual":"");
+        fprintf(outfile, 
+                "HDMI Vendor block (CEC @0x%04x):\nSupport: %s%s%s%s%s%s\n",
+                edid_ext[dbp+3] + (edid_ext[dbp+4]<<8),
+                (edid_ext[dbp+5] & 0x80) ? "AI ":"",
+                (edid_ext[dbp+5] & 0x40) ? "DC_48bit ":"",
+                (edid_ext[dbp+5] & 0x20) ? "DC_36bit ":"",
+                (edid_ext[dbp+5] & 0x10) ? "DC_30bit ":"",
+                (edid_ext[dbp+5] & 0x08) ? "DC_Y444 ":"",
+                (edid_ext[dbp+5] & 0x01) ? "DVI_Dual":"");
 	if (edid_ext[dbp+6] > 0) 
-	  printf("Max TMDS Frequency %dMHz\n", edid_ext[dbp+6]*5);
+          fprintf(outfile, "Max TMDS Frequency %dMHz\n", edid_ext[dbp+6]*5);
 	if (edid_ext[dbp+7] & 0x80)
-	  printf("Video latency %dms, audio latency %dms\n",
-		 2 * (edid_ext[dbp+8] - 1), 2 * (edid_ext[dbp+9] - 1));
+          fprintf(outfile, "Video latency %dms, audio latency %dms\n",
+                  2 * (edid_ext[dbp+8] - 1), 2 * (edid_ext[dbp+9] - 1));
 	if (edid_ext[dbp+7] & 0x40)
-	  printf("Interlaced Video latency %dms, audio latency %dms\n",
-		 2 * (edid_ext[dbp+10] - 1), 2 * (edid_ext[dbp+11] - 1));
+          fprintf(outfile, 
+                  "Interlaced Video latency %dms, audio latency %dms\n",
+                  2 * (edid_ext[dbp+10] - 1), 2 * (edid_ext[dbp+11] - 1));
       }
       else
-	printf("Vendor block for %02x-%02x-%02x", 
-	       edid_ext[dbp+0], edid_ext[dbp+1], edid_ext[dbp+2]);
+	fprintf(outfile, "Vendor block for %02x-%02x-%02x", 
+                edid_ext[dbp+0], edid_ext[dbp+1], edid_ext[dbp+2]);
       break;
 
     case 4:
       /* Speaker allocation Block */
-      printf("Speakers: %s%s%s%s%s%s%s\n",
-	     (edid_ext[dbp+0] & 0x40) ? "RearCenter L/R ":"",
-	     (edid_ext[dbp+0] & 0x20) ? "FrontCenter L/R ":"",
-	     (edid_ext[dbp+0] & 0x10) ? "Rear Center":"",
-	     (edid_ext[dbp+0] & 0x08) ? "Rear L/R ":"",
-	     (edid_ext[dbp+0] & 0x04) ? "Front Center ":"",
-	     (edid_ext[dbp+0] & 0x02) ? "LFE ":"",
-	     (edid_ext[dbp+0] & 0x01) ? "Front L/R ":"");
+      fprintf(outfile, "Speakers: %s%s%s%s%s%s%s\n",
+              (edid_ext[dbp+0] & 0x40) ? "RearCenter L/R ":"",
+              (edid_ext[dbp+0] & 0x20) ? "FrontCenter L/R ":"",
+              (edid_ext[dbp+0] & 0x10) ? "Rear Center":"",
+              (edid_ext[dbp+0] & 0x08) ? "Rear L/R ":"",
+              (edid_ext[dbp+0] & 0x04) ? "Front Center ":"",
+              (edid_ext[dbp+0] & 0x02) ? "LFE ":"",
+              (edid_ext[dbp+0] & 0x01) ? "Front L/R ":"");
       break;
 
     default:
-      printf("Unknown Data Block with type tag 0x%x, length 0x%x\n",
-	     edid_ext[dbc] >> 5, db_len);
+      fprintf(outfile, "Unknown Data Block with type tag 0x%x, length 0x%x\n",
+              edid_ext[dbc] >> 5, db_len);
       break;
     }
     dbc += db_len + 1;
   }
   for(i=0; i < n_dtd; i++)
-    show_edid_dtd(edid_ext + (off_dtd + 18*i));
+    show_edid_dtd(outfile, edid_ext + (off_dtd + 18*i));
 }
 
 
@@ -261,8 +268,47 @@ int edid_valid(unsigned char *edid_data)
 	  (edid_data[6]==0xff) && (edid_data[7]==0x00));
 }
 
+int edid_has_hdmi_info(unsigned char *edid_data, int ext)
+{
+  unsigned char* edid_ext = edid_data + 128;
+  int dbc;
+  int off_dtd = edid_ext[2];
+
+  /* No if no extension, which can happen for two reasons */
+  /* a) ext < 1 indicates no data was read into the extension area */
+  /* b) edid_data[126] < 1 indicates EDID does not use extension area */
+  if ((ext < 1) || (edid_data[126] < 1))
+    return 0;
+
+  /* No if extension is not CEA rev 3 */
+  if (!((edid_ext[0] == 0x02) && (edid_ext[1] == 0x03)))
+    return 0;
+
+  /* No if block is empty */
+  if (off_dtd < 4) 
+    return 0;
+
+  /* Between offset 4 and off_dtd is the Data Block Collection */
+  /* There may be none, in which case off_dtd == 4             */
+  dbc = 4;
+  while (dbc < off_dtd) {
+    int db_len = edid_ext[dbc] & 0x1f;
+    int dbp = dbc + 1;
+
+    if ((edid_ext[dbc] >> 5) == 3) {
+      /* Vendor Data Block */
+      if ((edid_ext[dbp+0] == 0x03) && 
+	  (edid_ext[dbp+1] == 0x0C) && 
+	  (edid_ext[dbp+2] == 0x00)) 
+        return 1;
+      }
+    dbc += db_len + 1;
+  }
+  return 0;
+}
+
 /* Print out an EDID */
-void show_edid(unsigned char *edid_data, int ext)
+void show_edid(FILE *outfile, unsigned char *edid_data, int ext)
 {
   int i;
   int edidver = edid_data[18];
@@ -270,55 +316,56 @@ void show_edid(unsigned char *edid_data, int ext)
   unsigned char* edid_ext;
 
   if (!edid_valid(edid_data)) {
-    printf("Block does not contain EDID header\n");
+    fprintf(outfile, "Block does not contain EDID header\n");
     return;
   }
   /* unsigned edid_data so the right shifts pull in zeros */
-  printf("Manufacturer ID %c%c%c, product ID 0x%x\n", 
-	 '@' + (edid_data[8]>>2), 
-	 '@' + ((edid_data[8] & 3)<<3) + (edid_data[9]>>5),
-	 '@' + (edid_data[9] & 0x1f),
-	 edid_data[10] + (edid_data[11]<<8));
-  printf("Manufactured wk %d of %d. Edid version %d.%d\n",
-	 edid_data[16], 1990+edid_data[17], edidver, edidrev);
-  printf("Input: %s, vid level %d, %s, %s %s %s %s sync, %dx%dcm, Gamma %f\n",
-	 (edid_data[20] & 0x80) ? "digital" : "analog",
-	 (edid_data[20]>>5) & 3,
-	 (edid_data[20] * 0x10) ? "Blank to black" : "",
-	 (edid_data[20] * 0x08) ? "Separate" : "",
-	 (edid_data[20] * 0x04) ? "Composite" : "",
-	 (edid_data[20] * 0x02) ? "On-green" : "",
-	 (edid_data[20] * 0x01) ? "Serration V" : "",
-	 edid_data[21], edid_data[22], 1.0+((float)edid_data[23]/100.0));
-  printf("Features: %s %s %s %s %s %s %s\n",
-	 (edid_data[24] & 0x80) ? "standby" : "",
-	 (edid_data[24] & 0x40) ? "suspend" : "",
-	 (edid_data[24] & 0x20) ? "active-off" : "",
-	 (edid_data[24] & 0x18) ? "colour" : "monochrome",
-	 (edid_data[24] & 0x04) ? "std-cspace" : "non-std-cspace",
-	 (edid_data[24] & 0x02) ? "preferred-timing" : "",
-	 (edid_data[24] & 0x02) ? "default-GTF" : "");
+  fprintf(outfile, "Manufacturer ID %c%c%c, product ID 0x%x\n", 
+          '@' + (edid_data[8]>>2), 
+          '@' + ((edid_data[8] & 3)<<3) + (edid_data[9]>>5),
+          '@' + (edid_data[9] & 0x1f),
+          edid_data[10] + (edid_data[11]<<8));
+  fprintf(outfile, "Manufactured wk %d of %d. Edid version %d.%d\n",
+          edid_data[16], 1990+edid_data[17], edidver, edidrev);
+  fprintf(outfile, 
+          "Input: %s, vid level %d, %s, %s %s %s %s sync, %dx%dcm, Gamma %f\n",
+          (edid_data[20] & 0x80) ? "digital" : "analog",
+          (edid_data[20]>>5) & 3,
+          (edid_data[20] * 0x10) ? "Blank to black" : "",
+          (edid_data[20] * 0x08) ? "Separate" : "",
+          (edid_data[20] * 0x04) ? "Composite" : "",
+          (edid_data[20] * 0x02) ? "On-green" : "",
+          (edid_data[20] * 0x01) ? "Serration V" : "",
+          edid_data[21], edid_data[22], 1.0+((float)edid_data[23]/100.0));
+  fprintf(outfile, "Features: %s %s %s %s %s %s %s\n",
+          (edid_data[24] & 0x80) ? "standby" : "",
+          (edid_data[24] & 0x40) ? "suspend" : "",
+          (edid_data[24] & 0x20) ? "active-off" : "",
+          (edid_data[24] & 0x18) ? "colour" : "monochrome",
+          (edid_data[24] & 0x04) ? "std-cspace" : "non-std-cspace",
+          (edid_data[24] & 0x02) ? "preferred-timing" : "",
+          (edid_data[24] & 0x02) ? "default-GTF" : "");
   
-  printf("Established Timing:\n");
-  if (edid_data[35] & 0x80) printf("720x400@70\n");
-  if (edid_data[35] & 0x40) printf("720x400@88\n");
-  if (edid_data[35] & 0x20) printf("640x480@60\n");
-  if (edid_data[35] & 0x10) printf("640x480@67\n");
-  if (edid_data[35] & 0x08) printf("640x480@72\n");
-  if (edid_data[35] & 0x04) printf("640x480@75\n");
-  if (edid_data[35] & 0x02) printf("800x600@56\n");
-  if (edid_data[35] & 0x01) printf("800x600@60\n");
-  if (edid_data[36] & 0x80) printf("800x600@72\n");
-  if (edid_data[36] & 0x40) printf("800x600@75\n");
-  if (edid_data[36] & 0x20) printf("832x624@75\n");
-  if (edid_data[36] & 0x10) printf("1024x768i@87\n");
-  if (edid_data[36] & 0x08) printf("1024x768@60\n");
-  if (edid_data[36] & 0x04) printf("1024x768@70\n");
-  if (edid_data[36] & 0x02) printf("1024x768@75\n");
-  if (edid_data[36] & 0x01) printf("1280x1024@75\n");
-  if (edid_data[36] & 0x80) printf("1152x870@75\n");
+  fprintf(outfile, "Established Timing:\n");
+  if (edid_data[35] & 0x80) fprintf(outfile, "720x400@70\n");
+  if (edid_data[35] & 0x40) fprintf(outfile, "720x400@88\n");
+  if (edid_data[35] & 0x20) fprintf(outfile, "640x480@60\n");
+  if (edid_data[35] & 0x10) fprintf(outfile, "640x480@67\n");
+  if (edid_data[35] & 0x08) fprintf(outfile, "640x480@72\n");
+  if (edid_data[35] & 0x04) fprintf(outfile, "640x480@75\n");
+  if (edid_data[35] & 0x02) fprintf(outfile, "800x600@56\n");
+  if (edid_data[35] & 0x01) fprintf(outfile, "800x600@60\n");
+  if (edid_data[36] & 0x80) fprintf(outfile, "800x600@72\n");
+  if (edid_data[36] & 0x40) fprintf(outfile, "800x600@75\n");
+  if (edid_data[36] & 0x20) fprintf(outfile, "832x624@75\n");
+  if (edid_data[36] & 0x10) fprintf(outfile, "1024x768i@87\n");
+  if (edid_data[36] & 0x08) fprintf(outfile, "1024x768@60\n");
+  if (edid_data[36] & 0x04) fprintf(outfile, "1024x768@70\n");
+  if (edid_data[36] & 0x02) fprintf(outfile, "1024x768@75\n");
+  if (edid_data[36] & 0x01) fprintf(outfile, "1280x1024@75\n");
+  if (edid_data[36] & 0x80) fprintf(outfile, "1152x870@75\n");
   
-  printf("Standard timing:\n");
+  fprintf(outfile, "Standard timing:\n");
   for(i=0; i < 8; i++) {
     int hinfo = edid_data[38+2*i];
     int vinfo = edid_data[39+2*i];
@@ -347,24 +394,24 @@ void show_edid(unsigned char *edid_data, int ext)
     default:
       vres = 0;
     }
-    printf("%d: %dx%d@%d\n", i, hres, vres, 60 + (vinfo & 0x3f));
+    fprintf(outfile, "%d: %dx%d@%d\n", i, hres, vres, 60 + (vinfo & 0x3f));
   }
   
-  printf("Descriptor blocks:\n");
+  fprintf(outfile, "Descriptor blocks:\n");
   for(i = 0; i < 4; i++) {
-    show_edid_dtd(edid_data + (54 + i * 18));
+    show_edid_dtd(outfile, edid_data + (54 + i * 18));
   }
-  printf("EDID contains %d extensions\n", edid_data[126]);
+  fprintf(outfile, "EDID contains %d extensions\n", edid_data[126]);
 
   edid_ext = edid_data + 128;
 
   if ((ext >= 1) && (edid_data[126] >= 1)) {
     if ((edid_ext[0] == 0x02) && (edid_ext[1] == 0x03)) {
-      show_cea_timing(edid_ext);
+      show_cea_timing(outfile, edid_ext);
     
     } else
-      printf("EDID extension tag 0x%02x rev 0x%02x not known\n",
-	     edid_data[128], edid_data[129]);
+      fprintf(outfile, "EDID extension tag 0x%02x rev 0x%02x not known\n",
+              edid_data[128], edid_data[129]);
 
   }
 }
