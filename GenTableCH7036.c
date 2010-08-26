@@ -1,41 +1,28 @@
-////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2010 Chrontel International Ltd. All rights reserved.
+////////////////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2010 Chrontel International Ltd. All rights reserved.  
 // Use of this source code is governed by the license that can be found in the LICENSE file.
-/////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////
 /*
  * @file  GenTableCH7036.c
- * @version 1.0
+ * @version 1.2
  * @revision
 **/
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 #include "GenTableCH7036.h"
 
 
+
+struct config_ch7036 global_config = {
+	sizeof(struct config_ch7036),
+	0x56,
+	0x00,    
+	CFG7036_COMV_OFF_DEFAULT,
+	CFG7036_DRV_STRENGTH_DEFAULT,
+	CFG7036_REFDLY_DEFAULT,
+	CFG7036_FBDLY_DEFAULT,
+	CFG7036_LVDS_INOUT_DEFAULT
+};
 
 typedef struct{
 	uint16 ht;
@@ -1128,7 +1115,7 @@ static uint8 global_arr_003[CONST_0032][CONST_0033];
 
 static uint8 global_arr_004[CONST_0032][CONST_0033];
 static uint8 g_dirtyreg = 0;
-// not used: static uint8 g_mcurst = 1;
+//static uint8 g_mcurst = 1;
 
 static struct reg_ch7036  global_arr_005[CONST_0032*CONST_0033];
 static uint32 global_arr_005_length =0;
@@ -1148,16 +1135,17 @@ static uint32 append_reg(uint8 index, uint8 value)
 static struct reg_ch7036 ch7036_lvds_only[] = {
 	{      0x03,    0x04 },
 	{	   0x58,    0x20 },    
-	{	   0x66,    0x04 },    
+
 	{	   0x67,	0xc0 },	  
 
 	{	   0x59,    0x60 },   
 
-	{	   0x54,    0xd4 },   
+
 	
 	{	   0x03,	0x01 },
-	{	   0x14,    0xd1 },   
-	{	   0x16,    0x21 },   
+
+
+
 	{      0x11,    0x88 },
 
 
@@ -1371,7 +1359,7 @@ static void func_gen_0001()
 
 
 
-static void func_gen_0002()
+static void func_gen_0002(int lvdsonly)
 {
 
 	append_reg(0x03, 0x04);
@@ -1383,6 +1371,30 @@ static void func_gen_0002()
 	append_reg(0x52, 0x2B );
 
 	append_reg(0x5A, 0x04);
+
+	append_reg(0x03, 0x01);
+	if (global_config.comv_off) append_reg( 0x16, 0x29);
+	else append_reg(0x16, 0x21);
+
+	if (global_config.revisionid == 0x00) {
+		
+		append_reg(0x14, 0xd1);   
+	}
+
+	append_reg(0x03, 0x04);
+	if (global_config.revisionid == 0x00) {
+		
+		if (lvdsonly) append_reg(0x54, 0xd4);   
+		else append_reg(0x54, 0xc4);   
+	}
+	else {
+		if (lvdsonly) append_reg(0x54, 0x94);   
+		else append_reg(0x54, 0x84);   
+	}
+
+	append_reg(0x66, ((global_config.refdly & 0x7)<<5)+ ((global_config.fbdly & 0x7)<<2) );
+	append_reg(0x68, 0x40 + (global_config.drv_strength & 0x0F) );
+	append_reg(0x57, 0xc0 & global_config.lvds_inout);
 }
 
 
@@ -1604,6 +1616,8 @@ ch_bool func_gen_0019(DEV_CONTEXT* pDevContext)
 		locvar_0004 = val_t;
 	}
 
+	locvar_0007 = pInfo_T_0002->sfld_iot02.sfld_0051;
+
 	if(pInfo_T_0002->channel & CONST_0010)
 	{
 		
@@ -1622,7 +1636,7 @@ ch_bool func_gen_0019(DEV_CONTEXT* pDevContext)
 			locvar_0007 = 1;
 			break;
 		default:
-			locvar_0007 = 0;
+
 			break;		
 		}
 	}
@@ -1856,6 +1870,7 @@ ch_bool func_gen_0019(DEV_CONTEXT* pDevContext)
 	return ch_true;
 }
 
+
 ch_bool func_gen_0020(DEV_CONTEXT* pDevContext)
 {
 	if(!func_gen_0012(pDevContext->pInfo_T_0001))
@@ -1890,7 +1905,7 @@ ch_bool func_gen_0021(DEV_CONTEXT* pDevContext)
 
    
 		
-		func_gen_0002();
+		func_gen_0002(pDevContext->pInfo_T_0002->channel == CONST_0009);
 
 		
 
@@ -2143,6 +2158,10 @@ ch_bool func_gen_0013(OUTPUT_INFO* pInfo_T_0002)
 	
 	
 		out_data( 0x23, 0x63);
+
+	  
+		out_data( 0x24, 0xF9 & in_data(0x24));
+
 	}
 
 
@@ -2200,6 +2219,8 @@ ch_bool func_gen_0015(DEV_CONTEXT* pDevContext)
 	uint32 val_t;
 	uint32 val_t1, val_t2;
 
+	uint32 locvar_0093;
+
 	
 	INPUT_INFO* pInfo_T_0001 = pDevContext->pInfo_T_0001;
 	OUTPUT_INFO* pInfo_T_0002 = pDevContext->pInfo_T_0002;
@@ -2222,22 +2243,32 @@ ch_bool func_gen_0015(DEV_CONTEXT* pDevContext)
 	out_data_ex(FLD0080, locvar_0031);
 
 	
-	for(locvar_0034=1; locvar_0034<=64; locvar_0034<<=1)
-	{
-		val_t = pInfo_T_0001->sfld_0001 / locvar_0034;
-		if(val_t >= 2300 && val_t <= 4600)
-			break;
+	if (global_config.revisionid > 0 ) {
+		
+		locvar_0034 = 8;
+		locvar_0033 = 3;
 	}
-	if(locvar_0034 > 64)
-	{
-		g_nLastError = 204;
-		return ch_false;
+	else {
+		
+			for(locvar_0034=1; locvar_0034<=64; locvar_0034<<=1)
+			{
+				val_t = pInfo_T_0001->sfld_0001 / locvar_0034;
+				if(val_t >= 2300 && val_t <= 4600)
+					break;
+			}
+			if(locvar_0034 > 64)
+			{
+				g_nLastError = 204;
+				return ch_false;
+			}
+			if(!func_gen_0004(ch_false, &locvar_0033, &locvar_0034))
+			{
+				g_nLastError = 204;
+				return ch_false;
+			}
+
 	}
-	if(!func_gen_0004(ch_false, &locvar_0033, &locvar_0034))
-	{
-		g_nLastError = 204;
-		return ch_false;
-	}
+
 	out_data_ex(FLD0069, locvar_0033);
 
 	
@@ -2259,10 +2290,26 @@ ch_bool func_gen_0015(DEV_CONTEXT* pDevContext)
 	}
 	out_data_ex(FLD0081, locvar_0035);
 
+	if (global_config.revisionid > 0 )  {
+		locvar_0093 = 27000;   
+	}
+	else {
+		locvar_0093 = pInfo_T_0001->sfld_0001;
+	}
+
 	
-	val_t1 = (pInfo_T_0001->sfld_0001 << 12);
+	val_t1 = (locvar_0093 << 12);
 	val_t2 = (locvar_0034 * locvar_0036 * pInfo_T_0003->sfld_0024);
-	locvar_0045 = (val_t1 % val_t2) ? (val_t1 / val_t2 + 1) : (val_t1 / val_t2); 
+
+	
+
+
+	if (pInfo_T_0002->sfld_0019==148500) {
+		val_t2 = (locvar_0034 * locvar_0036 * 120000);
+
+	}
+
+        locvar_0045 = (val_t1 % val_t2) ? (val_t1 / val_t2 + 1) : (val_t1 / val_t2); 	
 	out_data_ex(FLD0082, locvar_0045);
 
 	
@@ -2272,7 +2319,7 @@ ch_bool func_gen_0015(DEV_CONTEXT* pDevContext)
 	}
 	else 
 	{
-		locvar_0048 = (pInfo_T_0001->sfld_0001 * 2 * locvar_0030 * locvar_0032) / (locvar_0034 * 10);
+		locvar_0048 = (locvar_0093 * 2 * locvar_0030 * locvar_0032) / (locvar_0034 * 10);
 	}
 	out_data_ex(FLD0067, locvar_0048);
 
@@ -2312,12 +2359,12 @@ ch_bool func_gen_0015(DEV_CONTEXT* pDevContext)
 		if(pInfo_T_0003->sfld_0025 == 1)
 		{
 
-			locvar_0046 = mul32div32(pInfo_T_0002->sfld_0019* locvar_0034 * locvar_0038, ( ((uint32)1) <<  20), pInfo_T_0001->sfld_0001); 
+			locvar_0046 = mul32div32(pInfo_T_0002->sfld_0019* locvar_0034 * locvar_0038, ( ((uint32)1) <<  20), locvar_0093); 
 			out_data_ex(FLD0090, locvar_0046);
 		}
 		else
 		{
-			locvar_0047 = pInfo_T_0001->sfld_0001 * ( ((uint32)1) <<  12) / (pInfo_T_0002->sfld_0019 * locvar_0034 * locvar_0038);
+			locvar_0047 = locvar_0093 * ( ((uint32)1) <<  12) / (pInfo_T_0002->sfld_0019 * locvar_0034 * locvar_0038);
 			out_data_ex(FLD0091, locvar_0047);
 		}
 	}
@@ -2350,10 +2397,36 @@ ch_bool func_gen_0015(DEV_CONTEXT* pDevContext)
 			locvar_0038 = 2;
 			break;
 		case 148500:
-			locvar_0044 = 5;
+			
+			
+			locvar_0044 = 5;  
 			locvar_0042 = 11;
-			locvar_0040 = 5;
+			locvar_0040 = 5;  
 			locvar_0038 = 2;
+/*
+			{  
+
+				locvar_0044 = 6;  
+				locvar_0042 = 11;
+				locvar_0040 = 6;  
+				locvar_0038 = 2;
+			
+				out_data( 0x03, 0x01);
+				
+				out_data( 0x0D, 0x60 | (0x9F & in_data(0x0D)));
+				
+				out_data( 0x0C, 0x40 | (0x3F & in_data(0x0C)));
+				
+				out_data( 0x0F, 0x38 | (0xC7 & in_data(0x0F)));
+				
+				out_data( 0x0B, 0xC0 | (0x1F & in_data(0x0B)));
+				
+				out_data( 0x0A, 0x0F | (0xE0 & in_data(0x0A)));
+             
+
+
+			}
+*/
 			break;
 		default:
 			return ch_false;
@@ -2638,6 +2711,16 @@ ch_bool func_gen_0016(DEV_CONTEXT* pDevContext)
 		locvar_0062 = 1;
 	else
 		locvar_0062 = 0;
+	
+	
+
+	if (global_config.revisionid > 0 ) {
+		if(locvar_0092 >= (locvar_0054+50) )
+			locvar_0062 = 1;
+		else
+			locvar_0062 = 0;
+	}
+	
 	out_data_ex(FLD0113, locvar_0062);
 
 	
@@ -2714,7 +2797,7 @@ ch_bool func_gen_0017(DEV_CONTEXT* pDevContext)
 	
 	
 
-
+	out_data_ex(FLD0154, 27000);
 
 
 	out_data_ex(FLD0155, 1);
@@ -2732,6 +2815,10 @@ ch_bool func_gen_0017(DEV_CONTEXT* pDevContext)
 		locvar_0079 = 0;
 		locvar_0086 = 0;
 	}
+	else {
+
+	}
+
 	if(pInfo_T_0002->channel & CONST_0010)
 	{
 		locvar_0065 = 0;
@@ -2783,20 +2870,7 @@ ch_bool func_gen_0017(DEV_CONTEXT* pDevContext)
 		out_data(0x57, 0x02);  
 	}
 
-	
-	if(0==(pInfo_T_0002->channel & (CONST_0011 | CONST_0010)))
-	{
-		
-		out_data(0x03, 0x01);
-		out_data(0x11, (0x80 | in_data(0x11)));
-		out_data(0x03, 0x04);
-		out_data(0x54, (0x10 | in_data(0x54)));
 
-		out_data(0x03, 0x00);
-		out_data(0x07, 0x5F);
-		out_data(0x08, 0xFF);
-		out_data(0x09, 0x7F);
-	}
 
 	
 	out_data_ex(FLD0127,		locvar_0065);
@@ -2827,24 +2901,53 @@ ch_bool func_gen_0017(DEV_CONTEXT* pDevContext)
 	out_data_ex(FLD0153,			locvar_0090);
 	out_data_ex(FLD0161,		locvar_0091);
 
+		
+	if(0==(pInfo_T_0002->channel & (CONST_0011 | CONST_0010)))
+	{
+		
+		out_data(0x03, 0x01);
+		
+		out_data(0x11, (0x80 | in_data(0x11)));
+		out_data(0x03, 0x04);
+		out_data(0x54, (0x10 | in_data(0x54)));
+
+		out_data(0x03, 0x00);
+		out_data(0x07, 0x5F);
+		out_data(0x08, 0xFF);
+		out_data(0x09, 0x7F);
+	}
+	
+	
+	
+	if(0!=(pInfo_T_0002->channel & (CONST_0011 | CONST_0010)))
+	{
+		
+		if ( 
+
+
+
+
+				(pInfo_T_0001->sfld_0001 > 100000)     
+			  )
+		{
+			out_data(0x03, 0x00);
+			out_data(0x07, 0x40 | in_data(0x07));  
+			out_data(0x09, 0x28 | in_data(0x09));  
+			out_data(0x0A, 0x20 | in_data(0x0A));  
+			out_data(0x2B, 0x09);      
+		}
+	}
+
+
+
 	
 	
 	
 	{
-		uint8 val_t;
-		out_data(0x03, 0x01);
-		
-		val_t = in_data(0x16) & 0xF7;
-		out_data(0x16, val_t);
-		
-		val_t = in_data(0x24) & 0xFD;
-		out_data(0x24, val_t);
-		
-		val_t = in_data(0x14) | 0x40;
-		out_data(0x14, val_t);
-		out_data(0x03, 0x04);
-		val_t = in_data(0x54) | 0x40;
-		out_data(0x54, val_t);
+
+
+
+
 	}
 	
 	
@@ -3054,6 +3157,7 @@ ch_bool func_gen_0008(ch_bool funpar_0009, uint8* funpar_0010, uint8* div_addr)
 	return ch_true;
 }
 
+
 ch_bool func_gen_0009(ch_bool funpar_0011, uint8* funpar_0012, uint8* div_addr)
 {
 	if(funpar_0011)
@@ -3070,6 +3174,7 @@ ch_bool func_gen_0009(ch_bool funpar_0011, uint8* funpar_0012, uint8* div_addr)
 		if(*div_addr >= 8 && *div_addr <= 11)
 		{
 			*funpar_0012 = (*div_addr) - 8;
+
 			return ch_true;
 		}
 		return ch_false;
@@ -3305,6 +3410,18 @@ static void func_gen_0024(PREFER_INFO* pInfo_T_0003)
 }
 
 
+void SetGlobalConfigCH7036(struct config_ch7036* pCfg)
+{
+	if (pCfg) {
+		global_config.deviceid = pCfg->deviceid;
+		global_config.revisionid = pCfg->revisionid;
+		global_config.comv_off = pCfg->comv_off;
+		global_config.drv_strength = pCfg->drv_strength;
+		global_config.fbdly = pCfg->fbdly;
+		global_config.refdly = pCfg->refdly;
+		global_config.lvds_inout = pCfg->lvds_inout;
+	}
+}
 
 uint32 GenTableCH7036( struct timing_ch7036* pLvdsInput, 
 					   struct timing_ch7036* pHdmiOutput,
@@ -3342,6 +3459,9 @@ uint32 GenTableCH7036_outcfg( struct timing_ch7036* pLvdsInput,
 		
 		
 		iic_reset();
+		{ 
+			
+		}
 		if(!func_gen_0019(&DevContext))
 		{
 			last_error = GetLastErrorMessage(); 
@@ -3408,6 +3528,7 @@ uint32 GenTableCH7036_outcfg( struct timing_ch7036* pLvdsInput,
 			append_reg(0x0A, val_t);
 			val_t &= 0xEF;
 			append_reg(0x0A, val_t);
+
 		}
 
 		
@@ -3416,11 +3537,4 @@ uint32 GenTableCH7036_outcfg( struct timing_ch7036* pLvdsInput,
 		if (ppRegTable) *ppRegTable = global_arr_005;
 
 		return 0;
-}
-
-unsigned char GenDefault(int p, int r)
-{
-	if ((p < 5) && (r < 128))
-		return global_arr_001[p][r];
-	return 0;
 }

@@ -268,6 +268,44 @@ int edid_valid(unsigned char *edid_data)
 	  (edid_data[6]==0xff) && (edid_data[7]==0x00));
 }
 
+int edid_lpcm_support(unsigned char *edid_data, int ext)
+{
+  unsigned char* edid_ext = edid_data + 128;
+  int dbc;
+  int off_dtd = edid_ext[2];
+
+  /* No if no extension, which can happen for two reasons */
+  /* a) ext < 1 indicates no data was read into the extension area */
+  /* b) edid_data[126] < 1 indicates EDID does not use extension area */
+  if ((ext < 1) || (edid_data[126] < 1))
+    return 0;
+
+  /* No if extension is not CEA rev 3 */
+  if (!((edid_ext[0] == 0x02) && (edid_ext[1] == 0x03)))
+    return 0;
+
+  /* No if block is empty */
+  if (off_dtd < 4) 
+    return 0;
+
+  /* Between offset 4 and off_dtd is the Data Block Collection */
+  /* There may be none, in which case off_dtd == 4             */
+  dbc = 4;
+  while (dbc < off_dtd) {
+    int db_len = edid_ext[dbc] & 0x1f;
+    int dbp = dbc + 1;
+
+    if (((edid_ext[dbc] >> 5) == 1) &&
+        (((edid_ext[dbp]>>3) & 0xF) == 1)) {
+      /* Audio Data Block, type LPCM, return bitmap of frequencies */
+      return edid_ext[dbp+1];
+    }
+    dbc += db_len + 1;
+  }
+  return 0;
+}
+
+
 int edid_has_hdmi_info(unsigned char *edid_data, int ext)
 {
   unsigned char* edid_ext = edid_data + 128;

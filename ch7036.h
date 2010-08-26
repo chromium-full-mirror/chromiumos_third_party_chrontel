@@ -20,6 +20,7 @@
 #define CH7036_PWRST2 1,0x07
 #define CH7036_PWRST3 1,0x08
 #define CH7036_PWRST4 1,0x09
+#define CH7036_PWRST5 1,0x0A
 
 #define CH7036_INTIME1_PAGE 1
 #define CH7036_INTIME1_REG 0x0b
@@ -68,6 +69,7 @@
 #define CH7036_HDINCC3 4,0x3E
 
 #define CH7036_DEVID 4,0x50
+#define CH7036_REVID 4,0x51
 #define CH7036_RESET 4,0x52
 #define CH7036_PWRSTATE1 4,0x54
 
@@ -78,8 +80,8 @@ extern int ch7036_cur_page; /* Current register page being accessed */
 int ch_write_reg(int dev, int page, int reg, int data);
 int ch_read_reg(int dev, int page, int reg);
 int ch_write_reg_sequence (int dev, struct reg_ch7036* seq);
-int ch_restore_notin_seq (int dev, struct reg_ch7036* seq);
-int ch_change_reg(struct reg_ch7036* seq, int page, int reg, int value);
+int ch_restore_notin_seq (int dev, struct reg_ch7036* seq, int verbose);
+int ch_change_reg(struct reg_ch7036* seq, int page, int reg, int andv, int orv);
 void ch_reset_datapath (int dev);
 void ch_reset_todefault (int dev);
 void ch_monitor_on(int dev);
@@ -91,5 +93,6 @@ int ch_load_firmware(int dev, char* fname);
 int ch_mcu_version(int dev, int newFirmware, int verbose);
 int ch_hdmi_detected(int dev);
 int ch_get_edid(int dev, int edid_block, unsigned char* edid);
+void set_ch7036_config(int i2cdev); // 8/15/10 DT
 
 #endif /* def __CH7036_H__ */

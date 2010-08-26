@@ -147,6 +147,13 @@ static struct timing_ch7036 known_modes[] = {
     MK_SCALE(0, 0),
   },
   { 
+    148500,   
+    MK_PIXEL_HDMI(1, 0, 0),  // dvi, fmt, aspect
+    1,  1,  1,       // hpo, vpo, depo
+    2200, 1920, 88,  44,  1125, 1080, 4,  5,
+    MK_SCALE(0, 0),
+  },
+  { 
     162000,   
     MK_PIXEL_HDMI(1, 0, 0),
     1,  1,  1,
@@ -276,7 +283,7 @@ void usage(char *prog)
 
 
 int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
-               int verbose)
+               int forcen_a, int verbose)
 {
   int seen_pref = 0;
   int interlace = 0;
@@ -365,7 +372,7 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
 	    *aspect = ASPECT_4_3;
 	  }
 	}
-	seen_pref = 1;
+	if ((forcen_a < 0) || (*aspect == forcen_a)) seen_pref = 1;
       }
     }
   }
@@ -393,9 +400,9 @@ int get_standard(unsigned char *data,
 
     if (i < 8) { hinfo = data[38+2*i]; vinfo = data[39+2*i];}
     /* 8-10 check established timing 60Hz entries */ 
-    if ((i == 8)  && (data[35] & 0x20)) { hinfo = (640-248)/8;  vinfo = 0x40; }
-    if ((i == 9)  && (data[35] & 0x01)) { hinfo = (800-248)/8;  vinfo = 0x40; }
-    if ((i == 10) && (data[36] & 0x08)) { hinfo = (1024-248)/8; vinfo = 0x40; }
+    if ((i == 8)  && (data[35] & 0x20)) { hinfo = (640-248)/8; vinfo = 0x40; }
+    if ((i == 9)  && (data[35] & 0x01)) { hinfo = (800-248)/8; vinfo = 0x40; }
+    if ((i == 10) && (data[36] & 0x08)) { hinfo = (1024-248)/8;vinfo = 0x40; }
 
     /* 01 01 is pad by spec, but 00 00 and 20 20 are see in wild */
     if (((hinfo == 0x01) && (vinfo == 0x01)) ||
@@ -466,6 +473,34 @@ int get_standard(unsigned char *data,
   return 0;
 }
 
+/* Function added by Chrontel */
+/* FIXME: Should this move to ch7036_access.c */
+void set_ch7036_config(int i2cdev)
+{
+  struct config_ch7036 mycfg;
+  uint8 page;
+
+  mycfg.size = sizeof(struct config_ch7036);
+  //assuming page 1, the read function will return right page
+  page = ch_read_reg(i2cdev, 0x1, 0x03); 
+  ch_write_reg(i2cdev, page, 0x03, 0x04);
+  mycfg.deviceid = ch_read_reg(i2cdev,0x4,0x50);
+
+  mycfg.revisionid = 0x0F & ch_read_reg(i2cdev,0x4,0x51);
+  ch_write_reg(i2cdev,0x4, 0x03, page); // restore orignal page
+
+  mycfg.comv_off = CFG7036_COMV_OFF_YES; // only work for certain LVDS panel!!!
+  mycfg.comv_off = CFG7036_COMV_OFF_DEFAULT;
+
+  mycfg.drv_strength = CFG7036_DRV_STRENGTH_DEFAULT;
+  mycfg.fbdly = CFG7036_FBDLY_DEFAULT;
+  mycfg.refdly = CFG7036_REFDLY_DEFAULT;
+  mycfg.lvds_inout = CFG7036_LVDS_INOUT_DEFAULT;
+
+  SetGlobalConfigCH7036( &mycfg);
+  return;
+}
+
 void show_ch_timing(struct timing_ch7036* timing, char* what)
 { 
   printf("GenTableCH7036 %s timing set to:\n", what);
@@ -494,7 +529,7 @@ int main(int argc, char *argv[])
   Window bwin;
   XRRModeInfo *xmode;
   int forcen_x = 0;
-  int forcen_a = 0;
+  int forcen_a = -1;
   int probe_only = 0;
   int dummy_i2c = 0;
   int verbose = 0;
@@ -504,6 +539,9 @@ int main(int argc, char *argv[])
   int hdmiOn, seenOff;
   int needReload = 1;   /* Force firmware to load on the first loop */
   int newFirmware = 1;
+  int force_mode = -1;
+  int fixupx = 0;
+  int only_fixupx = 0;
 
   struct reg_ch7036 *reglist;
 
@@ -528,6 +566,13 @@ int main(int argc, char *argv[])
 
     case 'n':
       dummy_i2c = 1;
+      break;
+
+    case 'X':
+      only_fixupx = 1;
+      /* Fall through */
+    case 'x':
+      fixupx = 1;
       break;
 
     case 'V':
@@ -575,6 +620,25 @@ int main(int argc, char *argv[])
 	  forcen_x = 0;
 	} else
 	  forcen_a = strtol(endn + 1, &endn, 10);
+	if (endn != argv[arg]) argv[arg] = endn - 1;
+      }
+      break;
+
+    case 'm':
+      {
+        int md;
+
+        for(md = 0; 
+            md < sizeof(known_modes)/sizeof(struct timing_ch7036); md++)
+          printf("%2d - %dx%d\n", 
+                 md, known_modes[md].ha, known_modes[md].va);
+        exit(0);
+      }
+    case 'M':
+      {
+	char *endn;
+
+	force_mode = strtol(argv[arg] + 2, &endn, 10);
 	if (endn != argv[arg]) argv[arg] = endn - 1;
       }
     }
@@ -631,6 +695,10 @@ int main(int argc, char *argv[])
 
   if (probe_only)
     exit(0);
+  
+  if (verbose)
+    fprintf(stderr, "Found revision ID 0x%02x\n", 
+            ch_read_reg(i2cdev, CH7036_REVID));
 
   dpy = XOpenDisplay(":0.0");
   if (dpy == NULL) {
@@ -641,6 +709,11 @@ int main(int argc, char *argv[])
   root = RootWindow (dpy, screen);
   xmode = get_x_mode_info(dpy, root);
   if (verbose) showmode(xmode);
+
+  if (fixupx) {
+    set_x_size(dpy, root, xmode->width, xmode->height, 0, 0);
+    if (only_fixupx) exit(0);
+  }
 
   if ((xmode->width == 1366) && (xmode->height == 768)) {
     width_fix = width_fix_1366x768;
@@ -669,6 +742,9 @@ int main(int argc, char *argv[])
     int new_width;
     FILE* edidlog;
     char *why_res = "nothing";
+    char *why_aud;
+    int enable_audio = 0;
+    int ares;
     if ((edidlog = fopen(EDID_LOG, "w")) != NULL) {
       fprintf(edidlog, "No HDMI device detected\n");
       fclose(edidlog);
@@ -717,6 +793,8 @@ int main(int argc, char *argv[])
 
     err = ch_get_edid(i2cdev, 0, &edid[0]);
     mon_timing = NULL;
+    enable_audio = 0;
+    why_aud = "LPCM Audio support not found in EDID";
     if (err < 0) {
       if (ch_mcu_version(i2cdev, 0, verbose) < 0) {
         if (verbose) printf("EDID error because Chrontel firmware lost\n");
@@ -739,6 +817,8 @@ int main(int argc, char *argv[])
         if (verbose)
           printf("Ignore HPD since EDID not valid just after firmware load\n");
         sleep(5);
+        /* The EDID was read, so next time it is not new fw */
+        newFirmware = 0;
         /* Loop back to recheck HPD after sleep */
         continue;
       }
@@ -755,7 +835,14 @@ int main(int argc, char *argv[])
           show_edid_data(stdout, &edid[128], 128, 128);
         show_edid(stdout, &edid[0], (edid[126] > 0) ? 1:0);
       }
-      if ((forcen_x == 0) && get_native(&edid[0], &prefer, &aspect, verbose)){
+      if (force_mode >= 0) {
+        mon_timing = &known_modes[force_mode];
+        aspect = find_aspect(mon_timing->ha, mon_timing->va);
+        enable_audio = 1;
+        why_res = "Mode forced on command line";
+        why_aud = "Audio forced on";
+      } else if ((forcen_x == 0) && 
+          get_native(&edid[0], &prefer, &aspect, forcen_a, verbose)){
 	mon_timing = &prefer;
         why_res = "preferred/native resolution requested in EDID";
      
@@ -764,10 +851,15 @@ int main(int argc, char *argv[])
         /* even if they set the 'underscan' flag that says they should      */
         /* If the EDID has an HDMI extension then assume this badness       */
         /* unless it is not 16:9 because most monitors are well behaved     */
-        if (edid_has_hdmi_info(&edid[0], (edid[126] > 0) ? 1:0) &&
-            aspect == ASPECT_16_9) {
-          prefer.scale = MK_SCALE(6, 5);
-          why_res = "preferred resolution in EDID scaled for overscan";
+        if (edid_has_hdmi_info(&edid[0], (edid[126] > 0) ? 1:0)) {
+          if (aspect == ASPECT_16_9) {
+            prefer.scale = MK_SCALE(6, 5);
+            why_res = "preferred resolution in EDID scaled for overscan";
+          }
+          if (edid_lpcm_support(&edid[0], (edid[126] > 0) ? 1:0)) {
+            enable_audio = 1;
+            why_aud = "EDID indicates LPCM audio support";
+          }
         }
       } else {
 	get_standard(&edid[0], &mon_timing, &aspect, forcen_x, forcen_a, 
@@ -799,6 +891,7 @@ int main(int argc, char *argv[])
       lcd_timing.ha = new_width;
       lcd_timing.ho = xmode->hSyncStart - new_width;
 
+      set_ch7036_config(i2cdev);      
       err = GenTableCH7036(&lcd_timing, mon_timing, &reglist);
 
       if (err != 0) {
@@ -819,15 +912,25 @@ int main(int argc, char *argv[])
       bwin = x_start_blank(dpy, screen, root, xmode->width, xmode->height);
 
     if (verbose) printf("Restore defaults:\n");
-    ch_restore_notin_seq(i2cdev, reglist);
+    ch_restore_notin_seq(i2cdev, reglist, verbose);
     if (verbose) printf("Program registers:\n");
     if (mon_timing->scale != MK_SCALE(0,0)) {
-      int res = ch_change_reg(reglist, CH7036_AVIINFO3, 0x11);
-      if (verbose) printf("Change AVIINFO3 from 0x%2x to 0x%2x\n", res, 0x11);
+      int res = ch_change_reg(reglist, CH7036_AVIINFO3, 0xFC, 0x1);
+      if (verbose) printf("Change AVIINFO3 from 0x%2x to 0x%2x\n", 
+                          res, (res & 0xFC)|0x1);
     }
+    /* Bottom bit set to power down audio serializer */
+    ares = ch_change_reg(reglist, CH7036_SDTIME1, 0xFE, enable_audio ? 0 : 1);
+    if (verbose) printf("Change SDTIME1 from 0x%2x to 0x%2x\n",
+                        ares, (ares & 0xFE)| (enable_audio ? 0 : 1));
     ch_write_reg_sequence(i2cdev, reglist);
     ch_calculate_incs(i2cdev);
     ch_monitor_on(i2cdev);
+    /* Audio requires HDMI selected rather than DVI */
+    /* reset datapath (in monitor on) seems to zap this bit */
+    if (enable_audio) {
+      ch_write_reg(i2cdev, CH7036_PWRST5, 0x4);
+    }
     hdmiOn = 1;
 
     if (new_width != xmode->width)
@@ -838,7 +941,9 @@ int main(int argc, char *argv[])
               mon_timing->ha, mon_timing->va,
               (mon_timing->scale != MK_SCALE(0,0)) ? "(scaled)":"",
               new_width, xmode->height);
-      fprintf(edidlog, "Use %s\n\n", why_res);
+      fprintf(edidlog, "Use %s\n", why_res);
+      fprintf(edidlog, "%s audio pass through because %s\n\n", 
+              enable_audio ? "Enable" : "No", why_aud);
       fprintf(edidlog, "EDID Data read from HDMI:\n");
       show_edid_data(edidlog, &edid[0], 128, 0);
       if (edid[126] > 0)
@@ -849,7 +954,8 @@ int main(int argc, char *argv[])
     do {
       CARD16 state;
       BOOL onoff;
-
+      /* moving the sleep here seems less likely to loose fw 1.2 */
+      sleep(5);
       /* Check the Chrontel firmware is still alive */
       /* Moved to outer loop because lid switch yanks power and kills fw */
       /* without any chance for powerd to do it nicely */
@@ -865,12 +971,17 @@ int main(int argc, char *argv[])
         } else if ((state == DPMSModeOn) && !hdmiOn) {
           if (verbose) printf("DPMS is on, turn on hdmi\n");
           ch_monitor_on(i2cdev);
+          /* Audio requires HDMI selected rather than DVI */
+          /* reset datapath (in monitor on) seems to zap this bit */
+          if (enable_audio) {
+            ch_write_reg(i2cdev, CH7036_PWRST5, 0x4);
+          }
           if (verbose) printf("Monitor back on with DPMS On\n");
           hdmiOn = 1;
         }
       }
-      /* If we need a reload, don't wait! */
-      if (!needReload) sleep(5);
+      /* If we need a reload, don't wait! -- moved sleep to start for fw 1.2 */
+      //      if (!needReload) sleep(5);
     } while (!needReload && ch_hdmi_detected(i2cdev));
     if (verbose) printf("Exit displaying needReload = %d, hdmiOn = %d\n", 
                         needReload, hdmiOn);
