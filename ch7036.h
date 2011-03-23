@@ -73,6 +73,12 @@
 #define CH7036_RESET 4,0x52
 #define CH7036_PWRSTATE1 4,0x54
 
+/* Timeouts used for polling loops */
+#define YIELD_GPIO_DETECT_SECS 2
+#define YIELD_CHRONTEL_DETECT_SECS 5
+#define YIELD_CHRONTEL_TURN_OFF_SECS 5
+#define YIELD_FIRMWARE_START_SECS 1
+
 /* Routines/globals provided by ch7036_access.c */
 extern int ch7036_debugi2c; /* Set to cause debug printing */
 extern int ch7036_cur_page; /* Current register page being accessed */
@@ -92,6 +98,7 @@ void ch_calculate_incs(int dev);
 int ch_load_firmware(int dev, char* fname);
 int ch_mcu_version(int dev, int newFirmware, int verbose);
 int ch_hdmi_detected(int dev);
+int ch_hdmi_gpio_detected(int gpiodev, int verbose);
 int ch_get_edid(int dev, int edid_block, unsigned char* edid);
 void set_ch7036_config(int i2cdev); // 8/15/10 DT
 

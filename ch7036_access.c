@@ -1210,6 +1210,37 @@ int ch_hdmi_detected(int dev)
   return res;
 }
 
+/* The hdmi detect can be read directly from a gpio */
+/* The Linux GPIO sysfs file reads as ascii '0' or '1' */
+/* This function returns 1 = connected, 0 = not connected or error */
+
+int ch_hdmi_gpio_detected(int gpiodev, int verbose)
+{
+  int err;
+  char buff[2];
+
+  err = lseek(gpiodev, 0, SEEK_SET);
+  if (err != 0) {
+    fprintf(stderr, "gpiodev(%d): lseek returned %d (%s)",
+            gpiodev, err, (err < 0) ? strerror(errno) : "Not at start");
+    return 0;
+  }
+  err = read(gpiodev, buff, 1);
+  if (err != 1) {
+    fprintf(stderr, "gpiodev(%d): read returned %d (%s)",
+            gpiodev, err, (err < 0) ? strerror(errno) : "More than 1 byte");
+    return 0;
+  }
+  if ((buff[0] != '0') && (buff[0] != '1')) {
+    fprintf(stderr, "gpiodev(%d): read gave unexpected character %c (0x%02x)\n",
+            gpiodev, buff[0], buff[0]);
+    return 0;
+  }
+  if (verbose) printf("HDMI GPIO read as %c\n", buff[0]);
+  return (buff[0] == '1');
+}
+
+
 /* Note -- this only works if firmware is loaded */
 /* will time out if the firmware is not running  */
 int ch_get_edid(int dev, int edid_block, unsigned char* edid)

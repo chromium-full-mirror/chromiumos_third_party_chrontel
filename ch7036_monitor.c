@@ -271,6 +271,7 @@ void usage(char *prog)
 	  "Usage: %s {-v|-p][-d<i2c device>|-n][-f<firmware>][-Ew,a]\n", prog);
   fprintf(stderr, "-d<filename>: set i2c device to use (default %s)\n", 
 	  DEF_DEV);
+  fprintf(stderr, "-g<filename>: enable and set gpio device for HDMI detect\n");
   fprintf(stderr, "-f<filename>: set firmware to use (default %s)\n", DEF_FW);
   fprintf(stderr, "-n: Use dummy i2c device\n");
   fprintf(stderr, "-v: Verbose, print every I2C access\n");
@@ -520,6 +521,8 @@ int main(int argc, char *argv[])
 {
   int i2cdev;
   char *i2cfile = DEF_DEV;
+  int gpiodev;
+  char *gpiofile = NULL;
   char *fwfile = DEF_FW;
   int arg;
   int err;
@@ -592,6 +595,19 @@ int main(int argc, char *argv[])
 	  fprintf(stderr, "-d needs filename: %s\n", argv[arg]);
 	  usage(argv[0]);
 	}
+      }
+      break;
+
+    case 'g':
+      if (argv[arg][2] != 0)
+        gpiofile = argv[arg] + 2;
+      else {
+        if (++arg < argc)
+          gpiofile = argv[arg];
+        else {
+          fprintf(stderr, "-g needs filename: %s\n", argv[arg]);
+          usage(argv[0]);
+        }
       }
       break;
 
@@ -700,6 +716,14 @@ int main(int argc, char *argv[])
     fprintf(stderr, "Found revision ID 0x%02x\n", 
             ch_read_reg(i2cdev, CH7036_REVID));
 
+  if (gpiofile != NULL) {
+    gpiodev = open(gpiofile, O_RDONLY);
+    if (gpiodev < 0) {
+      fprintf(stderr, "Could not open %s: %s\n", gpiofile, strerror(errno));
+      exit(1);
+    }
+  }
+
   dpy = XOpenDisplay(":0.0");
   if (dpy == NULL) {
     fprintf(stderr, "%s: Can't open display :0.0\n", argv[0]);
@@ -763,7 +787,7 @@ int main(int argc, char *argv[])
       needReload = 0;
       do {
         if (ch_mcu_version(i2cdev, 1, verbose) > 0) break;
-        sleep(1);
+        sleep(YIELD_FIRMWARE_START_SECS);
         mcutry++;
         if (mcutry >= 5) needReload = 1;
       } while (mcutry < 5);
@@ -773,21 +797,38 @@ int main(int argc, char *argv[])
       /* Using the longer ch_mcu_version timeout makes it less liekly */
       /* Turning the monitor on here seems to make the problem go away */
       /* FIXME: but it causes LCD flicker */
-      ch_monitor_on(i2cdev);
-      ch_monitor_off_keep_ddc(i2cdev);
+      if (gpiodev) {
+        if (verbose) printf("GPIO detection, don't bounce the display\n");
+      } else {
+        ch_monitor_on(i2cdev);
+        ch_monitor_off_keep_ddc(i2cdev);
+      }
     }
 
     seenOff = 0;
-    while (!needReload && !ch_hdmi_detected(i2cdev)) {
-      sleep(5);
-      /* Check the Chrontel firmware is still alive */
-      /* Originally only did this when DPMS said screen came on */
-      /* But that misses the case where lid close takes system to s3 */
+    if (gpiodev) {
+      /* Don't pass verbose flag here as 2nd arg, it is too verbose */
+      while (ch_hdmi_gpio_detected(gpiodev, 0) == 0)
+        sleep(YIELD_GPIO_DETECT_SECS);
+      /* To be safe bounce and check for reload */
+      /* TODO(mdhayter) try removing */
+      ch_monitor_on(i2cdev);
+      ch_monitor_off_keep_ddc(i2cdev);
       if (ch_mcu_version(i2cdev, 0, 0) < 0) {
-        if (verbose) printf("Lost the Chrontel firmware\n");
+        if (verbose) printf("GPIO detected but lost the Chrontel firmware\n");
         needReload = 1;
       }
-    }
+    } else
+      while (!needReload && !ch_hdmi_detected(i2cdev)) {
+        sleep(YIELD_CHRONTEL_DETECT_SECS);
+        /* Check the Chrontel firmware is still alive */
+        /* Originally only did this when DPMS said screen came on */
+        /* But that misses the case where lid close takes system to s3 */
+        if (ch_mcu_version(i2cdev, 0, 0) < 0) {
+          if (verbose) printf("Lost the Chrontel firmware\n");
+          needReload = 1;
+        }
+      }
     /* Recycle the outer while loop to hit the fw reload code */
     if (needReload) continue;
 
@@ -805,7 +846,7 @@ int main(int argc, char *argv[])
       if (newFirmware) {
         if (verbose)
           printf("Ignore HPD because EDID failed just after firmware load\n");
-        sleep(5);
+        sleep(YIELD_CHRONTEL_DETECT_SECS);
         /* Loop back to recheck HPD after sleep */
         continue;
       }
@@ -816,7 +857,7 @@ int main(int argc, char *argv[])
       if (newFirmware) {
         if (verbose)
           printf("Ignore HPD since EDID not valid just after firmware load\n");
-        sleep(5);
+        sleep(YIELD_CHRONTEL_DETECT_SECS);
         /* The EDID was read, so next time it is not new fw */
         newFirmware = 0;
         /* Loop back to recheck HPD after sleep */
@@ -955,7 +996,7 @@ int main(int argc, char *argv[])
       CARD16 state;
       BOOL onoff;
       /* moving the sleep here seems less likely to loose fw 1.2 */
-      sleep(5);
+      sleep(YIELD_CHRONTEL_DETECT_SECS);
       /* Check the Chrontel firmware is still alive */
       /* Moved to outer loop because lid switch yanks power and kills fw */
       /* without any chance for powerd to do it nicely */
@@ -991,7 +1032,7 @@ int main(int argc, char *argv[])
       ch_monitor_off_keep_ddc(i2cdev);
       hdmiOn = 0;
       if (verbose) printf("Monitor should be off!\n");
-      sleep(2);
+      sleep(YIELD_CHRONTEL_TURN_OFF_SECS);
     }
   }
   close(i2cdev);

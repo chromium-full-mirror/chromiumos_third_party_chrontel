@@ -42,6 +42,7 @@ void usage(char *prog)
 {
   fprintf(stderr, "Usage: %s [-d<i2c device>|-n] [i|d|h|m|o] ...\n", prog);
   fprintf(stderr, "-d: set i2c device to use (default %s)\n", DEF_DEV);
+  fprintf(stderr, "-g: set gpio device to use (default none)\n");
   fprintf(stderr, "-n: Use dummy i2c device\n");
   fprintf(stderr, "-v: Verbose, print every I2C access\n");
   fprintf(stderr, "c - calculate and write in INC values\n");
@@ -53,19 +54,20 @@ void usage(char *prog)
   fprintf(stderr, "l <file> - Load firmware from file\n");
   fprintf(stderr, "v - show MCU firmware version\n");
   fprintf(stderr, "e - read and dump EDID\n");
-  fprintf(stderr, "E - dump test EDIDs\n");
+  fprintf(stderr, "a - wait for gpio to signal attatch\n");
+  fprintf(stderr, "d - wait for gpio to signal dettatch\n");
   fprintf(stderr, "W<page>,<reg>,<value> - Write CH7036 register\n");
   fprintf(stderr, "G<page>,<reg> - Get CH7036 register\n");
 
   exit(1);
 }
 
-
-
 int main(int argc, char *argv[])
 {
   int i2cdev;
+  int gpiodev = 0;
   char *i2cfile = DEF_DEV;
+  char *gpiofile = NULL;
   int arg;
   int err;
   XRRModeInfo *xmode;
@@ -101,6 +103,19 @@ int main(int argc, char *argv[])
 	}
       }
       break;
+
+    case 'g':
+      if (argv[arg][2] != 0)
+        gpiofile = argv[arg] + 2;
+      else {
+        if (++arg < argc)
+          gpiofile = argv[arg];
+        else {
+          fprintf(stderr, "-g needs filename: %s\n", argv[arg]);
+          usage(argv[0]);
+        }
+      }
+      break;
     }
   }
 
@@ -111,6 +126,14 @@ int main(int argc, char *argv[])
 
     if (i2cdev < 0) {
       fprintf(stderr, "Could not open %s: %s\n", i2cfile, strerror(errno));
+      exit(1);
+    }
+  }
+
+  if (gpiofile != NULL) {
+    gpiodev = open(gpiofile, O_RDONLY);
+    if (gpiodev < 0) {
+      fprintf(stderr, "Could not open %s: %s\n", gpiofile, strerror(errno));
       exit(1);
     }
   }
@@ -287,6 +310,26 @@ int main(int argc, char *argv[])
 	show_edid(stdout, &edid[0], ext);
       }
       break;
+    case 'a':
+      {
+        if (!gpiodev)
+          fprintf(stderr, "No gpio device to detect attach\n");
+        else {
+          while (ch_hdmi_gpio_detected(gpiodev, 1) == 0)
+            sleep(YIELD_GPIO_DETECT_SECS);
+        }
+        break;
+      }
+    case 'd':
+      {
+        if (!gpiodev)
+          fprintf(stderr, "No gpio device to detect detatch\n");
+        else {
+          while (ch_hdmi_gpio_detected(gpiodev, 1) == 1)
+            sleep(YIELD_GPIO_DETECT_SECS);
+        }
+        break;
+      }
     }
     if (argv[arg][1] != 0) {
       argv[arg]++;
@@ -295,6 +338,7 @@ int main(int argc, char *argv[])
   }
 
   close(i2cdev);
+  if (gpiodev) close(gpiodev);
   return 0;
 }
 
