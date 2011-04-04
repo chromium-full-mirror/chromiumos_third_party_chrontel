@@ -722,7 +722,8 @@ int main(int argc, char *argv[])
       fprintf(stderr, "Could not open %s: %s\n", gpiofile, strerror(errno));
       exit(1);
     }
-  }
+  } else
+    gpiodev = 0;
 
   dpy = XOpenDisplay(":0.0");
   if (dpy == NULL) {
@@ -880,6 +881,8 @@ int main(int argc, char *argv[])
         mon_timing = &known_modes[force_mode];
         aspect = find_aspect(mon_timing->ha, mon_timing->va);
         enable_audio = 1;
+        if (verbose) printf("Force mode %d with aspect %d\n",
+                            force_mode, aspect);
         why_res = "Mode forced on command line";
         why_aud = "Audio forced on";
       } else if ((forcen_x == 0) && 
@@ -924,7 +927,7 @@ int main(int argc, char *argv[])
 	show_ch_timing(&lcd_timing, "input (laptop lcd)");
 	show_ch_timing(mon_timing, "output (hdmi port)");
       }
-      if (width_fix != NULL)
+      if ((width_fix != NULL) && (aspect >= 0))
 	new_width = width_fix[aspect];
       else
 	new_width = xmode->width;
@@ -974,8 +977,10 @@ int main(int argc, char *argv[])
     }
     hdmiOn = 1;
 
-    if (new_width != xmode->width)
+    if (new_width != xmode->width) {
+      if (verbose) printf("Change X active width to %d\n", new_width);
       set_x_size(dpy, root, new_width, xmode->height, 1, bwin);
+    }
     if (verbose) printf("Monitor should be on!\n");
     if ((edidlog = fopen(EDID_LOG, "w")) != NULL) {
       fprintf(edidlog, "HDMI output %dx%d%s. Use %dx%d on local LCD.\n",
@@ -1026,8 +1031,10 @@ int main(int argc, char *argv[])
     } while (!needReload && ch_hdmi_detected(i2cdev));
     if (verbose) printf("Exit displaying needReload = %d, hdmiOn = %d\n", 
                         needReload, hdmiOn);
-    if (new_width != xmode->width)
+    if (new_width != xmode->width) {
+      if (verbose) printf("Change X active width to %d\n", xmode->width);
       set_x_size(dpy, root, xmode->width, xmode->height, 0, bwin);
+    }
     if (hdmiOn && !needReload) {
       ch_monitor_off_keep_ddc(i2cdev);
       hdmiOn = 0;
