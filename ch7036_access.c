@@ -742,7 +742,7 @@ static int smbus_write_byte_data(int dev, int reg, int data)
   res = ioctl(dev, I2C_SMBUS, &iodata);
   if (res < 0)
     fprintf(stderr, "Write byte fail (%d, %02x, %02x): %s",
-	    dev, reg, data, strerror(errno));
+            dev, reg, data, strerror(errno));
   if (ch7036_debugi2c)
     printf("WR_%d {0x%02x, 0x%02x} -> %d\n", ch7036_cur_page, reg, data, res);
   return res;
@@ -767,7 +767,7 @@ static int smbus_write_word_data(int dev, int reg, int data)
   res = ioctl(dev, I2C_SMBUS, &iodata);
   if (res < 0)
     fprintf(stderr, "Write word fail (%d, %04x, %02x): %s",
-	    dev, reg, data, strerror(errno));
+            dev, reg, data, strerror(errno));
   if (ch7036_debugi2c)
     printf("WR_%d {0x%02x, 0x%04x} -> %d\n", ch7036_cur_page, reg, data, res);
   return res;
@@ -775,7 +775,7 @@ static int smbus_write_word_data(int dev, int reg, int data)
 
 #ifdef FASTLOAD
 static int smbus_write_reg_bytes(int dev, int reg, int size, 
-				 unsigned char *data)
+                                 unsigned char *data)
 {
   struct i2c_smbus_ioctl_data iodata;
   union i2c_smbus_data value;
@@ -788,7 +788,7 @@ static int smbus_write_reg_bytes(int dev, int reg, int size,
 
   if (dev < 0) {
     printf("WR_%d {0x%02x, 0x%02x,...[%d]} -> %d\n", 
-	   ch7036_cur_page, reg, data[0], size, 0);
+           ch7036_cur_page, reg, data[0], size, 0);
     return 0;
   }
 
@@ -801,10 +801,10 @@ static int smbus_write_reg_bytes(int dev, int reg, int size,
   res = ioctl(dev, I2C_SMBUS, &iodata);
   if (res < 0)
     fprintf(stderr, "Write bytes fail (%d, %02x, %02x,...[%d]): %s\n",
-	    dev, reg, data[0], size, strerror(errno));
+            dev, reg, data[0], size, strerror(errno));
   if (ch7036_debugi2c)
     printf("WR_%d {0x%02x, 0x%02x,...[%d]} -> %d\n", 
-	   ch7036_cur_page, reg, data[0], size, res);
+           ch7036_cur_page, reg, data[0], size, res);
   return res;
 }
 #endif
@@ -825,7 +825,7 @@ static int smbus_read_byte_data(int dev, int reg)
   iodata.data = &value;
   if (ioctl(dev, I2C_SMBUS, &iodata) < 0) {
     fprintf(stderr, "Read byte fail (%d, %02x): %s",
-	    dev, reg, strerror(errno));
+            dev, reg, strerror(errno));
     return -1;
   }
   if (ch7036_debugi2c)
@@ -907,9 +907,11 @@ int ch_restore_notin_seq (int dev, struct reg_ch7036* seq, int verbose)
   
   for(j=0; j < 5; j++)
     for(i=0; i < 128; i++) if (changed[j][i]) {
-	if (i == CH7036_PAGE) continue;
-	err = ch_write_reg(dev, ch_page_revmap[j], i, GenDefault(j, i));
-	if (err != 0) return err;
+        if (i == CH7036_PAGE) continue;
+        err = ch_write_reg(dev, ch_page_revmap[j], i, GenDefault(j, i));
+        if (err != 0) return err;
+        // Now at default, so it is no longer changed
+        changed[j][i] = 0;
         nwritten++;
       }
   if (verbose)
@@ -917,6 +919,32 @@ int ch_restore_notin_seq (int dev, struct reg_ch7036* seq, int verbose)
   return 0;
 }
 
+int ch_remove_last_reg(struct reg_ch7036* seq, int page, int reg)
+{
+  int i;
+  int n_regs = N_REGS_IN_SEQ(seq);
+  int cp = -1;
+  int last_found = -1;
+
+  /* Some registers are in the list multiple times */
+  /* Need to remove the last one                   */
+  /* But must parse forward to follow page changes */
+  for (i=1; i <= n_regs; i++) {
+    if ((cp == page) && (seq[i].index == reg))
+      last_found = i;
+    if (seq[i].index == CH7036_PAGE)
+      cp = ch_page_revmap[seq[i].value & 7];
+  }
+  if (last_found > 0) {
+      int ov = seq[last_found].value;
+      for (i=last_found; i < n_regs; i++) seq[i] = seq[i+1];
+      n_regs--;
+      seq[0].index = (n_regs >> 8);
+      seq[0].value = (n_regs & 0xff);
+      return ov;
+  }
+  return -1;
+}
 int ch_change_reg(struct reg_ch7036* seq, int page, int reg, 
                   int andv, int orv)
 {
@@ -966,14 +994,15 @@ void ch_reset_todefault (int dev)
 }
 
 /* Turn the monitor on */
-void ch_monitor_on(int dev)
+void ch_monitor_on(int dev, int enable_audio)
 {
   ch_write_reg(dev, CH7036_PWRST2, 0xD0); // HDMI driver, SDRAM. SPDIF on
   ch_write_reg(dev, CH7036_PWRST3, 0x0F); // VGA dac powered down
   ch_write_reg(dev, CH7036_PWRST4, 0x02); // SDRAM, HDMI power on, RGB off
 
   ch_write_reg(dev, CH7036_MAGIC2_0E, 0x13); // MAGIC
-  ch_write_reg(dev, CH7036_SDTIME1, 0x20); // HDMI driver, PLL power on
+  // HDMI driver, PLL power on, bottom bit clear to enable audio
+  ch_write_reg(dev, CH7036_SDTIME1, enable_audio ? 0x20 : 0x21);
   
   ch_write_reg(dev, CH7036_PWRSTATE1, 0x84); // Normal (pll on)
   ch_reset_datapath(dev);
@@ -1029,17 +1058,17 @@ void ch_calculate_incs(int dev)
   //first read out parameters:
 
   hinca = ((ch_read_reg(dev, CH7036_HINCA1) << 3) | 
-	   (ch_read_reg(dev, CH7036_HINCA2) & 0x7));
+           (ch_read_reg(dev, CH7036_HINCA2) & 0x7));
   hincb = ((ch_read_reg(dev, CH7036_HINCB1) << 3) | 
-	   (ch_read_reg(dev, CH7036_HINCB2) & 0x7));
+           (ch_read_reg(dev, CH7036_HINCB2) & 0x7));
   vinca = ((ch_read_reg(dev, CH7036_VINCA1) << 3) | 
-	   (ch_read_reg(dev, CH7036_VINCA2) & 0x7));
+           (ch_read_reg(dev, CH7036_VINCA2) & 0x7));
   vincb = ((ch_read_reg(dev, CH7036_VINCB1) << 3) | 
-	   (ch_read_reg(dev, CH7036_VINCB2) & 0x7));
+           (ch_read_reg(dev, CH7036_VINCB2) & 0x7));
   hdinca = ((ch_read_reg(dev, CH7036_HDINCA1) << 3) | 
-	    (ch_read_reg(dev, CH7036_HDINCA2) & 0x7));
+            (ch_read_reg(dev, CH7036_HDINCA2) & 0x7));
   hdincb = ((ch_read_reg(dev, CH7036_HDINCB1) << 3) | 
-	    (ch_read_reg(dev, CH7036_HDINCB2) & 0x7));
+            (ch_read_reg(dev, CH7036_HDINCB2) & 0x7));
 
   /* calculate them */
   /* NOTE: this code works because the values are 11-bit */
@@ -1193,8 +1222,8 @@ int ch_mcu_version(int dev, int newFirmware, int verbose)
   }
   if (verbose)
     printf("CH7036 MCU ver %d.%d, Device %02x rev %d, capability 0x%x\n",
-	   config->ver_major, config->ver_minor,
-	   config->did, config->rid, config->capbility);
+           config->ver_major, config->ver_minor,
+           config->did, config->rid, config->capbility);
   return (config->ver_major<<8) | config->ver_minor;
 }
 
@@ -1279,8 +1308,8 @@ int ch_get_edid(int dev, int edid_block, unsigned char* edid)
       }
       gettimeofday(&tv, NULL);
       if (timercmp(&tv, &tout, >)) {
-	fprintf(stderr, "Timeout waiting for MCU to return EDID\n");
-	return -1;
+        fprintf(stderr, "Timeout waiting for MCU to return EDID\n");
+        return -1;
       }
     }
   }
