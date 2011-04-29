@@ -353,6 +353,11 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
       //int refm = (pelclk * 10000)%((hres+hbl)*(vres+vbl));
       //int refd = (refm*100)/((hres+hbl)*(vres+vbl));
 
+      if (hres > CH_MAX_HRES) {
+        if (verbose) printf("Ignore %dx%d mode since too wide for scaler\n",
+                            hres, vres);
+        continue;
+      }
       /* First encountered is the preferred and native */
       /* BUT: Seen some devices that list interlaced mode first */
       /* If they also have non-interlaced then use that    */

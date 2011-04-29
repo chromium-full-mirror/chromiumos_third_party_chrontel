@@ -79,6 +79,9 @@
 #define YIELD_CHRONTEL_TURN_OFF_SECS 5
 #define YIELD_FIRMWARE_START_SECS 1
 
+/* Maximum horizontal resolution to allow on HDMI port */
+#define CH_MAX_HRES 1920
+
 /* Routines/globals provided by ch7036_access.c */
 extern int ch7036_debugi2c; /* Set to cause debug printing */
 extern int ch7036_cur_page; /* Current register page being accessed */
