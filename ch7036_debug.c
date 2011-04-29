@@ -185,7 +185,7 @@ int main(int argc, char *argv[])
 
     case 'm':
       printf("MONITOR on\n");
-      ch_monitor_on(i2cdev, 0);
+      ch_monitor_on(i2cdev, 1, 1);
       break;
 
     case 'O':

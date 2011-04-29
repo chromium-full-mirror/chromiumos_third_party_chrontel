@@ -836,7 +836,8 @@ int main(int argc, char *argv[])
       if (gpiodev) {
         if (verbose) printf("GPIO detection, don't bounce the display\n");
       } else {
-        ch_monitor_on(i2cdev, 1);
+        /* Don't use verbose: hdim setting is don'tcare for workaround */
+        ch_monitor_on(i2cdev, 0, 0);
         ch_monitor_off_keep_ddc(i2cdev);
       }
     }
@@ -1013,10 +1014,7 @@ int main(int argc, char *argv[])
       if (verbose) printf("Change AVIINFO3 from 0x%2x to 0x%2x\n", 
                           res, (res & 0xFC)|0x1);
     }
-    /* Bottom bit set to power down audio serializer */
-    ares = ch_change_reg(reglist, CH7036_SDTIME1, 0xFE, enable_audio ? 0 : 1);
-    if (verbose) printf("Change SDTIME1 from 0x%2x to 0x%2x\n",
-                        ares, (ares & 0xFE)| (enable_audio ? 0 : 1));
+    /* Note: SDTIME1 code that was here has moved to ch_monitor_on() */
 
     /* Sequence provided has 2 resets each 2 writes which cause flicker */
     /* Only seem to need the reset that is in ch_monitor_on below */
@@ -1031,13 +1029,9 @@ int main(int argc, char *argv[])
 
     ch_write_reg_sequence(i2cdev, reglist);
     ch_calculate_incs(i2cdev);
-    ch_monitor_on(i2cdev, enable_audio);
-    /* Audio requires HDMI selected rather than DVI */
-    /* reset datapath (in monitor on) seems to zap this bit */
-    if (((mon_timing->pixel_fmt & PIXEL_HDMI_ENCODE_DVI) == 0) ||
-        enable_audio) {
-      ch_write_reg(i2cdev, CH7036_PWRST5, 0x4);
-    }
+    ch_monitor_on(i2cdev,
+                  (((mon_timing->pixel_fmt & PIXEL_HDMI_ENCODE_DVI) == 0) ||
+                   enable_audio), verbose);
     hdmiOn = 1;
 
     if (new_width != xmode->width) {
@@ -1080,13 +1074,9 @@ int main(int argc, char *argv[])
           hdmiOn = 0;
         } else if ((state == DPMSModeOn) && !hdmiOn) {
           if (verbose) printf("DPMS is on, turn on hdmi\n");
-          ch_monitor_on(i2cdev, enable_audio);
-          /* Audio requires HDMI selected rather than DVI */
-          /* reset datapath (in monitor on) seems to zap this bit */
-          if (((mon_timing->pixel_fmt & PIXEL_HDMI_ENCODE_DVI) == 0) ||
-              enable_audio) {
-            ch_write_reg(i2cdev, CH7036_PWRST5, 0x4);
-          }
+          ch_monitor_on(i2cdev,
+                   (((mon_timing->pixel_fmt & PIXEL_HDMI_ENCODE_DVI) == 0) ||
+                   enable_audio), verbose);
           if (verbose) printf("Monitor back on with DPMS On\n");
           hdmiOn = 1;
         }

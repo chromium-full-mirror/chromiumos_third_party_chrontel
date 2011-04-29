@@ -91,7 +91,7 @@ int ch_remove_last_reg(struct reg_ch7036* seq, int page, int reg);
 int ch_change_reg(struct reg_ch7036* seq, int page, int reg, int andv, int orv);
 void ch_reset_datapath (int dev);
 void ch_reset_todefault (int dev);
-void ch_monitor_on(int dev, int enable_audio);
+void ch_monitor_on(int dev, int hdmi_out, int verbose);
 void ch_monitor_off(int dev);
 void ch_monitor_off_keep_ddc(int dev);
 int ch_hdmi_is_on(int dev);

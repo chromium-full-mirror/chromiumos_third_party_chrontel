@@ -994,18 +994,30 @@ void ch_reset_todefault (int dev)
 }
 
 /* Turn the monitor on */
-void ch_monitor_on(int dev, int enable_audio)
+void ch_monitor_on(int dev, int hdmi_out, int verbose)
 {
+  int old;
+  int needed_bit_value;
+
   ch_write_reg(dev, CH7036_PWRST2, 0xD0); // HDMI driver, SDRAM. SPDIF on
   ch_write_reg(dev, CH7036_PWRST3, 0x0F); // VGA dac powered down
   ch_write_reg(dev, CH7036_PWRST4, 0x02); // SDRAM, HDMI power on, RGB off
 
   ch_write_reg(dev, CH7036_MAGIC2_0E, 0x13); // MAGIC
-  // HDMI driver, PLL power on, bottom bit clear to enable audio
-  ch_write_reg(dev, CH7036_SDTIME1, enable_audio ? 0x20 : 0x21);
+  ch_write_reg(dev, CH7036_SDTIME1, 0x20);
   
   ch_write_reg(dev, CH7036_PWRSTATE1, 0x84); // Normal (pll on)
   ch_reset_datapath(dev);
+
+  /* reset datapath seems to mess with this bit with some fw revs */
+  needed_bit_value = hdmi_out ? 0x04 : 0;
+  old = ch_read_reg(dev, CH7036_PWRST5);
+  if ((old & 0x04) != needed_bit_value) {
+    if (verbose) printf("Need %sI out: change PWRST5 from 0x%x to 0x%x\n",
+                        hdmi_out ? "HDM" : "DV",
+                        old, (old & ~0x04) | needed_bit_value);
+    ch_write_reg(dev, CH7036_PWRST5, (old & ~0x04) | needed_bit_value);
+  }
 }
 
 /* Turn the monitor off */
