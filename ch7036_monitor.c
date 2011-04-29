@@ -805,6 +805,7 @@ int main(int argc, char *argv[])
 
   while (1) {
     int new_width;
+    int new_height;
     FILE* edidlog;
     char *why_res = "nothing";
     char *why_aud;
@@ -987,9 +988,20 @@ int main(int argc, char *argv[])
         new_width = width_fix[aspect];
       else
         new_width = xmode->width;
+      new_height = xmode->height;
+
+      /* Special case for 1280 width to avoid shrinking by a small amount */
+      /* (the 5:4 aspect 1280x1024 will have reduced new_width above) */
+      if ((new_width == 1366) && (mon_timing->ha == 1280)) {
+        new_width = 1280;
+        /* Mostly for 1280x720 which is popular for TVs, avoid y scale too */
+        if (mon_timing->va < xmode->height) new_height = mon_timing->va;
+      }
 
       lcd_timing.ha = new_width;
       lcd_timing.ho = xmode->hSyncStart - new_width;
+      lcd_timing.va = new_height;
+      lcd_timing.vo = xmode->vSyncStart - new_height;
 
       set_ch7036_config(i2cdev);      
       err = GenTableCH7036(&lcd_timing, mon_timing, &reglist);
@@ -1040,8 +1052,8 @@ int main(int argc, char *argv[])
     hdmiOn = 1;
 
     if (new_width != xmode->width) {
-      if (verbose) printf("Change X active width to %d\n", new_width);
-      set_x_size(dpy, root, new_width, xmode->height, 1, bwin);
+      if (verbose) printf("Change X active to %dx%d\n", new_width, new_height);
+      set_x_size(dpy, root, new_width, new_height, 1, bwin);
     }
     if (verbose) printf("Monitor should be on!\n");
     if ((edidlog = fopen(EDID_LOG, "w")) != NULL) {
@@ -1049,7 +1061,7 @@ int main(int argc, char *argv[])
               (mon_timing->pixel_fmt & PIXEL_HDMI_ENCODE_DVI) ? "DV" : "HDM",
               mon_timing->ha, mon_timing->va,
               (mon_timing->scale != MK_SCALE(0,0)) ? "(scaled)":"",
-              new_width, xmode->height);
+              new_width, new_height);
       fprintf(edidlog, "Use %s\n", why_res);
       fprintf(edidlog, "%s audio pass through because %s\n\n", 
               enable_audio ? "Enable" : "No", why_aud);
@@ -1092,7 +1104,8 @@ int main(int argc, char *argv[])
     if (verbose) printf("Exit displaying needReload = %d, hdmiOn = %d\n", 
                         needReload, hdmiOn);
     if (new_width != xmode->width) {
-      if (verbose) printf("Change X active width to %d\n", xmode->width);
+      if (verbose) printf("Change X active to %dx%d\n",
+                          xmode->width, xmode->height);
       set_x_size(dpy, root, xmode->width, xmode->height, 0, bwin);
     }
     if (hdmiOn && !needReload) {
