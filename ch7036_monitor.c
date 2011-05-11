@@ -577,7 +577,7 @@ int main(int argc, char *argv[])
   int *width_fix;
   unsigned char edid[256];
   int aspect;
-  int hdmiOn, seenOff;
+  int hdmiOn;
   int needReload = 1;   /* Force firmware to load on the first loop */
   int newFirmware = 1;
   int force_mode = -1;
@@ -848,7 +848,6 @@ int main(int argc, char *argv[])
       }
     }
 
-    seenOff = 0;
     if (gpiodev) {
       int chkfw = 0;
       /* Don't pass verbose flag here as 2nd arg, it is too verbose */
