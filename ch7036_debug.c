@@ -54,6 +54,7 @@ void usage(char *prog)
   fprintf(stderr, "l <file> - Load firmware from file\n");
   fprintf(stderr, "v - show MCU firmware version\n");
   fprintf(stderr, "e - read and dump EDID\n");
+  fprintf(stderr, "E - dump test EDIDs\n");
   fprintf(stderr, "a - wait for gpio to signal attatch\n");
   fprintf(stderr, "d - wait for gpio to signal dettatch\n");
   fprintf(stderr, "W<page>,<reg>,<value> - Write CH7036 register\n");
@@ -273,12 +274,9 @@ int main(int argc, char *argv[])
 
     case 'E': 
       {
-	extern unsigned char test_edid1[];
-	extern unsigned char test_edid2[];
-	printf("Test EDID 1\n");
-	show_edid(stdout, test_edid1, 0);
-	printf("Test EDID 2\n");
-	show_edid(stdout, test_edid2, 0);
+        int i = 1;
+
+        while (show_test_edid(stdout, i) == 0) i++;
 	break;
     }
     case 'e':

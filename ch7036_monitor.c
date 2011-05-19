@@ -304,7 +304,12 @@ void usage(char *prog)
   fprintf(stderr, "-n: Use dummy i2c device\n");
   fprintf(stderr, "-v: Verbose, print every I2C access\n");
   fprintf(stderr, "-p: Probe: check I2C access and Chrontel ID and exit.\n");
-  fprintf(stderr, "-E<width>,<aspect>: Force aspet and max width\n");
+  fprintf(stderr, "-W<width>,<aspect>: Force aspet and max width\n");
+  fprintf(stderr, "-E<number>: Force use of test EDID number\n");
+  fprintf(stderr, "-m: list known modes\n");
+  fprintf(stderr, "-M<number>: Force use of mode number\n");
+  fprintf(stderr, "-x: Fixup X server width\n");
+  fprintf(stderr, "-X: Fixup X server width and exit\n");
   
   exit(1);
 }
@@ -320,8 +325,10 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
   int n_dtds = 4;
   int has_hdmi = edid_has_hdmi_info(data, data[126] ? 1:0);
   
+  /* In HDMI case know start of extra DTDs and max available space */
+  /* This gives a max, some could be in the 00 padding area */
   if (has_hdmi)
-    n_dtds += data[128+3] & 0xf;
+    n_dtds += (125 - data[128+2])/18;
 
   for(i = 0; i < n_dtds; i++) {
     int pelclk;
@@ -332,6 +339,8 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
     else
       base = data + 128 + data[130] + 18*(i-4);
 
+    /* In extension block this will be 0 when we hit padding */
+    /* in main block 0 indicates something other than DTD    */
     pelclk = base[0] + (base[1]<<8);
     
     if (pelclk != 0) {
@@ -390,7 +399,7 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
 
         if (*aspect < 0) {
           if (verbose)
-            printf("Didn't find aspect from %dx%d, trying size %dx%d",
+            printf("Didn't find aspect from %dx%d, trying size %dx%d\n",
                    hres, vres, hsiz, vsiz);
           *aspect = find_aspect(hsiz, vsiz);
           if ((*aspect < 0) && interlace) {
@@ -401,7 +410,8 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
           if (*aspect < 0) {
             if (verbose) printf("Still couldn't find aspect, use 4x3\n");
             *aspect = ASPECT_4_3;
-          }
+          } else
+            if (verbose) printf("Found aspect %s\n", aspect_to_str[*aspect]);
         }
         if ((forcen_a < 0) || (*aspect == forcen_a)) seen_pref = 1;
       }
@@ -571,6 +581,7 @@ int main(int argc, char *argv[])
   XRRModeInfo *xmode;
   int forcen_x = 0;
   int forcen_a = -1;
+  int force_edid = 0;
   int probe_only = 0;
   int dummy_i2c = 0;
   int verbose = 0;
@@ -663,12 +674,21 @@ int main(int argc, char *argv[])
       break;
 
     case 'E':
+      force_edid = strtol(argv[arg] + 2, NULL, 10);
+      if ((force_edid < 1) || (force_edid > N_TEST_EDIDS)) {
+          fprintf(stderr, "-E%d out of range, must be 1-%d\n",
+                  force_edid, N_TEST_EDIDS);
+          usage(argv[0]);
+      }
+      break;
+
+    case 'W':
       {
         char *endn;
 
         forcen_x = strtol(argv[arg] + 2, &endn, 10);
         if (endn[0] != ',') {
-          fprintf(stderr, "Expecting comma (-E<max_width>,<aspect>) in %s\n",
+          fprintf(stderr, "Expecting comma (-W<max_width>,<aspect>) in %s\n",
                   argv[arg]);
           usage(argv[0]);
           forcen_x = 0;
@@ -882,7 +902,12 @@ int main(int argc, char *argv[])
     /* Recycle the outer while loop to hit the fw reload code */
     if (needReload) continue;
 
-    err = ch_get_edid(i2cdev, 0, &edid[0]);
+    if (force_edid) {
+      /* Should not fail because force_edid was checked above */
+      err = get_test_edid(force_edid, &edid[0]);
+    } else
+      err = ch_get_edid(i2cdev, 0, &edid[0]);
+
     mon_timing = NULL;
     enable_audio = 0;
     why_aud = "LPCM Audio support not found in EDID";
@@ -917,7 +942,8 @@ int main(int argc, char *argv[])
               argv[0]);
       why_res = "default resolution because EDID is not valid";
     } else {
-      if (edid[126] > 0)
+      /* Force edid already filled in 256 bytes */
+      if ((edid[126] > 0) && !force_edid)
         ch_get_edid(i2cdev, 1, &edid[128]);
 
       if (verbose) {

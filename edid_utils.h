@@ -12,6 +12,9 @@
 #define ASPECT_16_9  3
 #define N_ASPECTS    4
 
+/* Number of test EDID arrays available to get/show_test_edid */
+#define N_TEST_EDIDS 5
+
 int edid_valid(unsigned char *edid_data);
 int edid_has_hdmi_info(unsigned char *edid_data, int ext);
 int edid_lpcm_support(unsigned char *edid_data, int ext);
@@ -21,5 +24,6 @@ void show_edid(FILE *outfile, unsigned char *edid_data, int ext);
 int find_aspect(int h, int v);
 int find_aspect_fromisize(unsigned char *edid_data);
 extern char *aspect_to_str[];
-
+int get_test_edid(int n, unsigned char *dst);
+int show_test_edid(FILE *outfile, int n);
 #endif
