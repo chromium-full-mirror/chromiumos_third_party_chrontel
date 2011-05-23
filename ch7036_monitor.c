@@ -39,71 +39,70 @@
 /* Width fixups for supported displays */
 int width_fix_1366x768[4] = {1366, 1024, 960, 1366};
 int width_fix_1280x800[4] = {1280, 1066, 1000, 1280};
- 
 
 /* Known timings (from tbl7036.c) */
 static struct timing_ch7036 known_modes[] = {
-  { 
+  {
     /* Put this first in table and use as default */
-    25200,   
+    25200,
     MK_PIXEL_HDMI(0, 1, 1),
     0, 0, 1,
     800, 640, 16,  96,  525, 480, 10,  2 ,
     MK_SCALE(0, 0),
   },
-  { 
-    27027,   
+  {
+    27027,
     MK_PIXEL_HDMI(0, 2, 1),
     0,  0,  1,
     858, 720, 16,  62,  525, 480, 9,  6 ,
     MK_SCALE(0, 0),
   },
-  { 
-    74250,   
+  {
+    74250,
     MK_PIXEL_HDMI(0, 4, 2),
     1,  1,  1,
     1650, 1280, 110, 40,  750, 720, 5,  5 ,
     MK_SCALE(0, 0),
   },
-  { 
-    148500,   
+  {
+    148500,
     MK_PIXEL_HDMI(0, 16, 2),  // dvi, fmt, aspect
     1,  1,  1,       // hpo, vpo, depo
     2200, 1920, 88,  44,  1125, 1080, 4,  5,
     MK_SCALE(0, 0),
   },
-  { 
+  {
     // Interlaced, put second so it won't be picked on res alone
-    74250,   
+    74250,
     MK_PIXEL_HDMI(0, 5, 2),  // dvi, fmt, aspect
     1,  1,  1,       // hpo, vpo, depo
     2200, 1920, 88,  44,  1125, 1080, 4,  5 ,
     MK_SCALE(0, 0),
   },
-  { 
-    27000,   
+  {
+    27000,
     MK_PIXEL_HDMI(0, 17, 1),
     0,  0,  1,
     864, 720, 12,  64,  625, 576, 5,  5,
     MK_SCALE(0, 0),
   },
-  { 
-    74250,   
+  {
+    74250,
     MK_PIXEL_HDMI(0, 19, 2),
     1,  1,  1,
     1980, 1280, 440, 40,  750, 720, 5,  5,
     MK_SCALE(0, 0),
   },
-  { 
-    148500,   
+  {
+    148500,
     MK_PIXEL_HDMI(0, 31, 2),  // dvi, fmt, aspect
     1,  1,  1,       // hpo, vpo, depo
     2640, 1920, 528, 44,  1125, 1080, 4,  5,
     MK_SCALE(0, 0),
   },
-  { 
+  {
     // Interlaced, put second
-    74250,   
+    74250,
     MK_PIXEL_HDMI(0, 20, 2),  // dvi, fmt, aspect
     1,  1,  1,       // hpo, vpo, depo
     2640, 1920, 528, 44,  1125, 1080, 4,  5,
@@ -132,14 +131,14 @@ static struct timing_ch7036 known_modes[] = {
     864, 720, 12,  64,  625, 576, 5,  5,
     MK_SCALE(0, 0),
   },
-  { 
+  {
     40000,
     MK_PIXEL_HDMI(1, 0, 0),
     1,  1,  1,
     1056, 800, 40,  128, 628, 600, 1,  4,
     MK_SCALE(0, 0),
   },
-  { 
+  {
     65000,
     MK_PIXEL_HDMI(1, 0, 0),
     1,  1,  1,
@@ -153,51 +152,51 @@ static struct timing_ch7036 known_modes[] = {
     1650, 1280, 110, 40,  750, 720, 5,  5 ,
     MK_SCALE(0, 0),
   },
-  { 
+  {
     108000,
     MK_PIXEL_HDMI(1, 0, 0),
     1,  1,  1,
     1688, 1280, 48,  112, 1066, 1024, 1,  3,
     MK_SCALE(0, 0),
   },
-  { 
+  {
     88750,
     MK_PIXEL_HDMI(1, 0, 0),
     1,  1,  1,
     1600, 1440, 48,  32,  926, 900, 3,  6,
     MK_SCALE(0, 0),
   },
-  { 
+  {
     119000,
     MK_PIXEL_HDMI(1, 0, 0),
     1,  1,  1,
     1840, 1680, 48,  32,  1080, 1050, 3,  6,
     MK_SCALE(0, 0),
   },
-  { 
+  {
     148500,
     MK_PIXEL_HDMI(1, 0, 0),  // dvi, fmt, aspect
     1,  1,  1,       // hpo, vpo, depo
     2200, 1920, 88,  44,  1125, 1080, 4,  5,
     MK_SCALE(0, 0),
   },
-  { 
-    162000,   
+  {
+    162000,
     MK_PIXEL_HDMI(1, 0, 0),
     1,  1,  1,
     2160, 1600, 64,  192, 1250, 1200, 1,  3,
     MK_SCALE(0, 0),
   },
   //=====
-  { 
-    130250,   
+  {
+    130250,
     MK_PIXEL_HDMI(1, 0, 0),
     1,  1,  1,
     1760,  1600, 48, 32,   1235,1200,  3,    4 ,
     MK_SCALE(0, 0),
   },
-  { 
-    161000,   
+  {
+    161000,
     MK_PIXEL_HDMI(1, 0, 0),
     1,  1,  1,
     2160,  1600,112, 168,   1245,1200,  3,    4  ,
@@ -227,7 +226,7 @@ Window x_start_blank(Display *dpy, int screen, Window root, int lw, int lh)
   attr.background_pixel = BlackPixel(dpy, screen);
   attr.border_pixel = BlackPixel(dpy, screen);
 
-  black_window = XCreateWindow(dpy, root, 
+  black_window = XCreateWindow(dpy, root,
                                0, 0, lw, lh, /* Full screen size */
                                0, 0, /* No border */
                                InputOutput, (Visual *)CopyFromParent,
@@ -244,7 +243,7 @@ Window x_start_blank(Display *dpy, int screen, Window root, int lw, int lh)
     gettimeofday(&tv, NULL);
     timeradd(&tv, &tout, &mkwin_tout);
     do {
-      seen_expose = XCheckWindowEvent(dpy, black_window, 
+      seen_expose = XCheckWindowEvent(dpy, black_window,
                                       ExposureMask,
                                       (XEvent *)&expev);
       gettimeofday(&tv, NULL);
@@ -256,7 +255,7 @@ Window x_start_blank(Display *dpy, int screen, Window root, int lw, int lh)
     return black_window;
 }
 
-void set_x_size(Display *dpy, Window root, int w, int h, 
+void set_x_size(Display *dpy, Window root, int w, int h,
                 int use_black, Window black_window)
 {
   XConfigureEvent ev;
@@ -269,7 +268,7 @@ void set_x_size(Display *dpy, Window root, int w, int h,
       XCheckWindowEvent(dpy, black_window, ExposureMask, &expev);
       gettimeofday(&tv, NULL);
     } while (timercmp(&tv, &mkwin_tout, <));
-  
+
   ev.type = ConfigureNotify;
   ev.display = dpy;
   ev.serial = 0;
@@ -283,7 +282,7 @@ void set_x_size(Display *dpy, Window root, int w, int h,
   ev.border_width = 0;
   ev.above = None;
   ev.override_redirect = 0;
-  XSendEvent(dpy, root, False, 
+  XSendEvent(dpy, root, False,
              StructureNotifyMask|SubstructureNotifyMask, (XEvent *)&ev);
   XFlush(dpy);
   if (use_black) {
@@ -295,9 +294,9 @@ void set_x_size(Display *dpy, Window root, int w, int h,
 
 void usage(char *prog)
 {
-  fprintf(stderr, 
+  fprintf(stderr,
           "Usage: %s {-v|-p][-d<i2c device>|-n][-f<firmware>][-Ew,a]\n", prog);
-  fprintf(stderr, "-d<filename>: set i2c device to use (default %s)\n", 
+  fprintf(stderr, "-d<filename>: set i2c device to use (default %s)\n",
           DEF_DEV);
   fprintf(stderr, "-g<filename>: enable and set gpio device for HDMI detect\n");
   fprintf(stderr, "-f<filename>: set firmware to use (default %s)\n", DEF_FW);
@@ -310,7 +309,7 @@ void usage(char *prog)
   fprintf(stderr, "-M<number>: Force use of mode number\n");
   fprintf(stderr, "-x: Fixup X server width\n");
   fprintf(stderr, "-X: Fixup X server width and exit\n");
-  
+
   exit(1);
 }
 
@@ -324,7 +323,7 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
   int i;
   int n_dtds = 4;
   int has_hdmi = edid_has_hdmi_info(data, data[126] ? 1:0);
-  
+
   /* In HDMI case know start of extra DTDs and max available space */
   /* This gives a max, some could be in the 00 padding area */
   if (has_hdmi)
@@ -342,7 +341,7 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
     /* In extension block this will be 0 when we hit padding */
     /* in main block 0 indicates something other than DTD    */
     pelclk = base[0] + (base[1]<<8);
-    
+
     if (pelclk != 0) {
       int hres = base[2] + ((base[4] & 0xf0)<<4);
       int hbl = base[3] + ((base[4] & 0x0f)<<8);
@@ -372,9 +371,9 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
       /* If they also have non-interlaced then use that    */
       /* HDMI monitors don't seem to obey this, there may be a better */
       /* mode in the extension block, look for something wider */
-      if ((!seen_pref) || 
+      if ((!seen_pref) ||
           (seen_pref && interlace && ((mdflg & 0x80) == 0)) ||
-          (seen_pref && has_hdmi && 
+          (seen_pref && has_hdmi &&
            ((mdflg & 0x80) == 0) && (hres > prefer->ha))) {
 
         prefer->clk_khz = pelclk * 10;
@@ -420,7 +419,7 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
   return seen_pref;
 }
 
-int get_standard(unsigned char *data, 
+int get_standard(unsigned char *data,
                  struct timing_ch7036 **mon, int *found_aspect,
                  int force_maxw, int force_aspect, int verbose)
 {
@@ -441,7 +440,7 @@ int get_standard(unsigned char *data,
     int hres, vres;
 
     if (i < 8) { hinfo = data[38+2*i]; vinfo = data[39+2*i];}
-    /* 8-10 check established timing 60Hz entries */ 
+    /* 8-10 check established timing 60Hz entries */
     if ((i == 8)  && (data[35] & 0x20)) { hinfo = (640-248)/8; vinfo = 0x40; }
     if ((i == 9)  && (data[35] & 0x01)) { hinfo = (800-248)/8; vinfo = 0x40; }
     if ((i == 10) && (data[36] & 0x08)) { hinfo = (1024-248)/8;vinfo = 0x40; }
@@ -453,7 +452,7 @@ int get_standard(unsigned char *data,
       continue;
     /* FIXME only doing 60Hz */
     if ((vinfo & 0x3f) != 0) continue;
-    
+
     hres = (hinfo * 8) + 248;
     if (verbose) printf("Found %d wide %s\n", hres, aspect_to_str[vinfo>>6]);
     if ((force_maxw > 0) && (hres > force_maxw)) continue;
@@ -531,7 +530,7 @@ void set_ch7036_config(int i2cdev)
 
   mycfg.size = sizeof(struct config_ch7036);
   //assuming page 1, the read function will return right page
-  page = ch_read_reg(i2cdev, 0x1, 0x03); 
+  page = ch_read_reg(i2cdev, 0x1, 0x03);
   ch_write_reg(i2cdev, page, 0x03, 0x04);
   mycfg.deviceid = ch_read_reg(i2cdev,0x4,0x50);
 
@@ -551,11 +550,11 @@ void set_ch7036_config(int i2cdev)
 }
 
 void show_ch_timing(struct timing_ch7036* timing, char* what)
-{ 
+{
   printf("GenTableCH7036 %s timing set to:\n", what);
   printf("    %d,\n", timing->clk_khz);
   printf("    0x%05x,\n", timing->pixel_fmt);
-  printf("    %d, %d, %d,\n", 
+  printf("    %d, %d, %d,\n",
          timing->hs_pol, timing->vs_pol, timing->de_pol);
   printf("    %d, %d, %d, %d, %d, %d, %d, %d,\n",
          timing->ht, timing->ha, timing->ho, timing->hw,
@@ -702,7 +701,7 @@ int main(int argc, char *argv[])
       {
         int md;
 
-        for(md = 0; 
+        for(md = 0;
             md < sizeof(known_modes)/sizeof(struct timing_ch7036); md++)
           printf("%2d - %s %dx%d\n", md,
                  ((known_modes[md].pixel_fmt & PIXEL_HDMI_ENCODE_DVI) ?
@@ -733,7 +732,7 @@ int main(int argc, char *argv[])
       if (i2cdev > 0) break;
 
       if (verbose || !probe_only)
-        fprintf(stderr, "%s: Could not open %s: %s\n", 
+        fprintf(stderr, "%s: Could not open %s: %s\n",
                 argv[0], i2cfile, strerror(errno));
       tryi2c--;
 
@@ -750,30 +749,30 @@ int main(int argc, char *argv[])
 
   if (err < 0) {
       if (verbose || !probe_only)
-        fprintf(stderr, "%s: Could not set slave address 0x%x: %s\n", 
+        fprintf(stderr, "%s: Could not set slave address 0x%x: %s\n",
                 argv[0], CH7036_I2C_ADDR, strerror(errno));
     exit(1);
   }
-  
+
   /* Read the information */
   err = ch_read_reg(i2cdev, CH7036_DEVID);
-  
+
   if (verbose)
     fprintf(stderr, "Found device ID 0x%02x\n", err);
 
   if (err != EXPECTED_CH7036_DEVID) {
     if (verbose || !probe_only)
-      fprintf(stderr, 
-              "%s: Fatal: Device ID 0x%02x not the expected 0x%02x\n", 
+      fprintf(stderr,
+              "%s: Fatal: Device ID 0x%02x not the expected 0x%02x\n",
               argv[0], err, EXPECTED_CH7036_DEVID);
     exit(1);
   }
 
   if (probe_only)
     exit(0);
-  
+
   if (verbose)
-    fprintf(stderr, "Found revision ID 0x%02x\n", 
+    fprintf(stderr, "Found revision ID 0x%02x\n",
             ch_read_reg(i2cdev, CH7036_REVID));
 
   if (gpiofile != NULL) {
@@ -967,11 +966,11 @@ int main(int argc, char *argv[])
         }
         if (verbose) printf("Force mode %d with aspect %d\n",
                             force_mode, aspect);
-      } else if ((forcen_x == 0) && 
+      } else if ((forcen_x == 0) &&
           get_native(&edid[0], &prefer, &aspect, forcen_a, verbose)){
         mon_timing = &prefer;
         why_res = "preferred/native resolution requested in EDID";
-     
+
         /* HDMI TVs tend to assume overscan (i.e. junk round the real frame)*/
         /* even when we tell them otherwise with the AVI INFO frame         */
         /* even if they set the 'underscan' flag that says they should      */
@@ -1028,7 +1027,7 @@ int main(int argc, char *argv[])
       lcd_timing.va = new_height;
       lcd_timing.vo = xmode->vSyncStart - new_height;
 
-      set_ch7036_config(i2cdev);      
+      set_ch7036_config(i2cdev);
       err = GenTableCH7036(&lcd_timing, mon_timing, &reglist);
 
       if (err != 0) {
@@ -1053,7 +1052,7 @@ int main(int argc, char *argv[])
     if (verbose) printf("Program registers:\n");
     if (mon_timing->scale != MK_SCALE(0,0)) {
       int res = ch_change_reg(reglist, CH7036_AVIINFO3, 0xFC, 0x1);
-      if (verbose) printf("Change AVIINFO3 from 0x%2x to 0x%2x\n", 
+      if (verbose) printf("Change AVIINFO3 from 0x%2x to 0x%2x\n",
                           res, (res & 0xFC)|0x1);
     }
     /* Note: SDTIME1 code that was here has moved to ch_monitor_on() */
@@ -1088,7 +1087,7 @@ int main(int argc, char *argv[])
               (mon_timing->scale != MK_SCALE(0,0)) ? "(scaled)":"",
               new_width, new_height);
       fprintf(edidlog, "Use %s\n", why_res);
-      fprintf(edidlog, "%s audio pass through because %s\n\n", 
+      fprintf(edidlog, "%s audio pass through because %s\n\n",
               enable_audio ? "Enable" : "No", why_aud);
       fprintf(edidlog, "EDID Data read from HDMI:\n");
       show_edid_data(edidlog, &edid[0], 128, 0);
@@ -1126,7 +1125,7 @@ int main(int argc, char *argv[])
       /* If we need a reload, don't wait! -- moved sleep to start for fw 1.2 */
       //      if (!needReload) sleep(5);
     } while (!needReload && ch_hdmi_detected(i2cdev));
-    if (verbose) printf("Exit displaying needReload = %d, hdmiOn = %d\n", 
+    if (verbose) printf("Exit displaying needReload = %d, hdmiOn = %d\n",
                         needReload, hdmiOn);
     if (new_width != xmode->width) {
       if (verbose) printf("Change X active to %dx%d\n",
@@ -1143,5 +1142,3 @@ int main(int argc, char *argv[])
   close(i2cdev);
   return 0;
 }
-
-    

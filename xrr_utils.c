@@ -28,14 +28,14 @@ static char modechar(int flags, int pos, int neg) {
 void showmode(XRRModeInfo *mode)
 {
   printf("Mode %s (%x)\n", mode->name, (unsigned int)mode->id);
-  printf("%dx%d, dot clock %ld  %cHsync %cVsync\n", 
-	 mode->width, mode->height, mode->dotClock,
-	 modechar(mode->modeFlags, RR_HSyncPositive, RR_HSyncNegative),
-	 modechar(mode->modeFlags, RR_VSyncPositive, RR_VSyncNegative));
+  printf("%dx%d, dot clock %ld  %cHsync %cVsync\n",
+         mode->width, mode->height, mode->dotClock,
+         modechar(mode->modeFlags, RR_HSyncPositive, RR_HSyncNegative),
+         modechar(mode->modeFlags, RR_VSyncPositive, RR_VSyncNegative));
   printf("H: start %d, end %d, skew %d, total %d\n",
-	 mode->hSyncStart, mode->hSyncEnd, mode->hSkew, mode->hTotal);
+         mode->hSyncStart, mode->hSyncEnd, mode->hSkew, mode->hTotal);
   printf("V: start %d, end %d, total %d\n",
-	 mode->vSyncStart, mode->vSyncEnd, mode->vTotal);
+         mode->vSyncStart, mode->vSyncEnd, mode->vTotal);
 }
 
 XRRModeInfo *get_x_mode_info(Display *dpy, Window root)
@@ -58,8 +58,8 @@ XRRModeInfo *get_x_mode_info(Display *dpy, Window root)
   /* Assume device only uses LVDS output, so find it by what is enabled */
   /* It points to a crtc which will be in a mode */
   for(out = 0; out < resources->noutput; out++) {
-    XRROutputInfo *oinfo = XRRGetOutputInfo(dpy, resources, 
-					    resources->outputs[out]);
+    XRROutputInfo *oinfo = XRRGetOutputInfo(dpy, resources,
+                                            resources->outputs[out]);
     if (oinfo->connection == RR_Connected) {
       activecrtc = oinfo->crtc;
       break;

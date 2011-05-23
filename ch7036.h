@@ -8,7 +8,7 @@
 
 #include "GenTableCH7036.h"
 
-/* First entry in a struct reg_ch7036 register sequence is the length */ 
+/* First entry in a struct reg_ch7036 register sequence is the length */
 #define N_REGS_IN_SEQ(s) (((s[0].index & 0xf) << 8) + s[0].value)
 
 #define CH7036_I2C_ADDR 0x76

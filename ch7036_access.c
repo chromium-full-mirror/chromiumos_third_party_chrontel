@@ -774,7 +774,7 @@ static int smbus_write_word_data(int dev, int reg, int data)
 }
 
 #ifdef FASTLOAD
-static int smbus_write_reg_bytes(int dev, int reg, int size, 
+static int smbus_write_reg_bytes(int dev, int reg, int size,
                                  unsigned char *data)
 {
   struct i2c_smbus_ioctl_data iodata;
@@ -787,7 +787,7 @@ static int smbus_write_reg_bytes(int dev, int reg, int size,
   }
 
   if (dev < 0) {
-    printf("WR_%d {0x%02x, 0x%02x,...[%d]} -> %d\n", 
+    printf("WR_%d {0x%02x, 0x%02x,...[%d]} -> %d\n",
            ch7036_cur_page, reg, data[0], size, 0);
     return 0;
   }
@@ -803,7 +803,7 @@ static int smbus_write_reg_bytes(int dev, int reg, int size,
     fprintf(stderr, "Write bytes fail (%d, %02x, %02x,...[%d]): %s\n",
             dev, reg, data[0], size, strerror(errno));
   if (ch7036_debugi2c)
-    printf("WR_%d {0x%02x, 0x%02x,...[%d]} -> %d\n", 
+    printf("WR_%d {0x%02x, 0x%02x,...[%d]} -> %d\n",
            ch7036_cur_page, reg, data[0], size, res);
   return res;
 }
@@ -884,7 +884,7 @@ int ch_write_reg_sequence (int dev, struct reg_ch7036* seq)
 
     if (res < 0)
       return -1;
-    if (seq[i].index == CH7036_PAGE) 
+    if (seq[i].index == CH7036_PAGE)
       ch7036_cur_page = ch_page_revmap[seq[i].value & 7];
   }
   return 0;
@@ -901,10 +901,10 @@ int ch_restore_notin_seq (int dev, struct reg_ch7036* seq, int verbose)
   /* Clear the changed vector for anything we are about to write */
   for (i=1; i <= n_regs; i++) {
     changed[ch_page_map[loc_cp]][seq[i].index] = 0;
-    if (seq[i].index == CH7036_PAGE) 
+    if (seq[i].index == CH7036_PAGE)
       loc_cp = ch_page_revmap[seq[i].value & 7];
   }
-  
+
   for(j=0; j < 5; j++)
     for(i=0; i < 128; i++) if (changed[j][i]) {
         if (i == CH7036_PAGE) continue;
@@ -945,7 +945,7 @@ int ch_remove_last_reg(struct reg_ch7036* seq, int page, int reg)
   }
   return -1;
 }
-int ch_change_reg(struct reg_ch7036* seq, int page, int reg, 
+int ch_change_reg(struct reg_ch7036* seq, int page, int reg,
                   int andv, int orv)
 {
   int i;
@@ -959,7 +959,7 @@ int ch_change_reg(struct reg_ch7036* seq, int page, int reg,
   for (i=1; i <= n_regs; i++) {
     if ((cp == page) && (seq[i].index == reg))
       last_found = i;
-    if (seq[i].index == CH7036_PAGE) 
+    if (seq[i].index == CH7036_PAGE)
       cp = ch_page_revmap[seq[i].value & 7];
   }
   if (last_found > 0) {
@@ -987,8 +987,8 @@ void ch_reset_todefault (int dev)
   ch_write_reg(dev, CH7036_RESET, 0x2d);
   ch_write_reg(dev, CH7036_RESET, 0x2f);
 
-  for(i=0; i < 256; i++) 
-    changed[0][i] = changed[1][i] = changed[2][i] = 
+  for(i=0; i < 256; i++)
+    changed[0][i] = changed[1][i] = changed[2][i] =
       changed[3][i] = changed[4][i] = 0;
 
 }
@@ -1005,7 +1005,7 @@ void ch_monitor_on(int dev, int hdmi_out, int verbose)
 
   ch_write_reg(dev, CH7036_MAGIC2_0E, 0x13); // MAGIC
   ch_write_reg(dev, CH7036_SDTIME1, 0x20);
-  
+
   ch_write_reg(dev, CH7036_PWRSTATE1, 0x84); // Normal (pll on)
   ch_reset_datapath(dev);
 
@@ -1029,7 +1029,7 @@ void ch_monitor_off(int dev)
 
   ch_write_reg(dev, CH7036_MAGIC2_0E, 0x93); // MAGIC
   ch_write_reg(dev, CH7036_SDTIME1, 0x29); // HDMI driver, PLL power off
-  
+
   ch_write_reg(dev, CH7036_PWRSTATE1, 0x94); // pll power down
 }
 
@@ -1043,7 +1043,7 @@ void ch_monitor_off_keep_ddc(int dev)
   /* Chrontel email response 2010-06-17 to Off preventing EDID reads */
   /* Please remove both  0xE and 0x16 registers */
   /* 0xE will power down DDC */
-  
+
   ch_write_reg(dev, CH7036_PWRSTATE1, 0x94); // pll power down
 }
 
@@ -1069,17 +1069,17 @@ void ch_calculate_incs(int dev)
 
   //first read out parameters:
 
-  hinca = ((ch_read_reg(dev, CH7036_HINCA1) << 3) | 
+  hinca = ((ch_read_reg(dev, CH7036_HINCA1) << 3) |
            (ch_read_reg(dev, CH7036_HINCA2) & 0x7));
-  hincb = ((ch_read_reg(dev, CH7036_HINCB1) << 3) | 
+  hincb = ((ch_read_reg(dev, CH7036_HINCB1) << 3) |
            (ch_read_reg(dev, CH7036_HINCB2) & 0x7));
-  vinca = ((ch_read_reg(dev, CH7036_VINCA1) << 3) | 
+  vinca = ((ch_read_reg(dev, CH7036_VINCA1) << 3) |
            (ch_read_reg(dev, CH7036_VINCA2) & 0x7));
-  vincb = ((ch_read_reg(dev, CH7036_VINCB1) << 3) | 
+  vincb = ((ch_read_reg(dev, CH7036_VINCB1) << 3) |
            (ch_read_reg(dev, CH7036_VINCB2) & 0x7));
-  hdinca = ((ch_read_reg(dev, CH7036_HDINCA1) << 3) | 
+  hdinca = ((ch_read_reg(dev, CH7036_HDINCA1) << 3) |
             (ch_read_reg(dev, CH7036_HDINCA2) & 0x7));
-  hdincb = ((ch_read_reg(dev, CH7036_HDINCB1) << 3) | 
+  hdincb = ((ch_read_reg(dev, CH7036_HDINCB1) << 3) |
             (ch_read_reg(dev, CH7036_HDINCB2) & 0x7));
 
   /* calculate them */
@@ -1160,7 +1160,7 @@ int ch_load_firmware(int dev, char* fname)
     /* Could it be the kernel driver? */
     /* Using word seems ok and halves the number of transactions */
 #ifdef SLOWLOAD
-    for (fs1=0; fs1<fs; fs1++) 
+    for (fs1=0; fs1<fs; fs1++)
       smbus_write_byte_data(dev, 0x07, buf[fs1]);
 #endif
 

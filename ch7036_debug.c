@@ -94,14 +94,14 @@ int main(int argc, char *argv[])
 
     case 'd':
       if (argv[arg][2] != 0)
-	i2cfile = argv[arg] + 2;
+        i2cfile = argv[arg] + 2;
       else {
-	if (++arg < argc) 
-	  i2cfile = argv[arg];
-	else {
-	  fprintf(stderr, "-d needs filename: %s\n", argv[arg]);
-	  usage(argv[0]);
-	}
+        if (++arg < argc)
+          i2cfile = argv[arg];
+        else {
+          fprintf(stderr, "-d needs filename: %s\n", argv[arg]);
+          usage(argv[0]);
+        }
       }
       break;
 
@@ -146,20 +146,19 @@ int main(int argc, char *argv[])
     err = ioctl(i2cdev, I2C_SLAVE, CH7036_I2C_ADDR);
 
   if (err < 0) {
-    fprintf(stderr, "Could not set slave address 0x%x: %s\n", 
-	    CH7036_I2C_ADDR, strerror(errno));
+    fprintf(stderr, "Could not set slave address 0x%x: %s\n",
+            CH7036_I2C_ADDR, strerror(errno));
     exit(1);
   }
-  
+
   /* Read the information */
   err = ch_read_reg(i2cdev, CH7036_DEVID);
-  
   fprintf(stderr, "Found device ID 0x%02x\n", err);
 
   err = ch_read_reg(i2cdev, CH7036_HDMI_ST);
 
   fprintf(stderr, "HDMI status 0x%02x: %s\n", err,
-	  (err & 0x10) ? "connected (or firmware not running)":"not detected");
+          (err & 0x10) ? "connected (or firmware not running)":"not detected");
 
   dpy = XOpenDisplay(":0.0");
   if (dpy == NULL) {
@@ -201,44 +200,44 @@ int main(int argc, char *argv[])
 
     case 'W':
       {
-	int page, reg, value;
-	char *endn;
+        int page, reg, value;
+        char *endn;
 
-	page = strtol(argv[arg] + 1, &endn, 0);
-	if (endn[0] != ',') {
-	  fprintf(stderr, "Expecting 1st comma (W<page>,<reg>,<value>) in %s\n",
-		  argv[arg]);
-	  break;
-	}
-	reg = strtol(endn + 1, &endn, 0);
-	if (endn[0] != ',') {
-	  fprintf(stderr, "Expecting 2nd comma (W<page>,<reg>,<value>) in %s\n",
-		  argv[arg]);
-	  break;
-	}
-	value = strtol(endn + 1, &endn, 0);
-	if (endn != argv[arg]) argv[arg] = endn - 1;
-	printf("Write 0x%x, 0x%x, 0x%x\n", page, reg, value);
-	ch_write_reg(i2cdev, page, reg, value);
-	break;
+        page = strtol(argv[arg] + 1, &endn, 0);
+        if (endn[0] != ',') {
+          fprintf(stderr, "Expecting 1st comma (W<page>,<reg>,<value>) in %s\n",
+                  argv[arg]);
+          break;
+        }
+        reg = strtol(endn + 1, &endn, 0);
+        if (endn[0] != ',') {
+          fprintf(stderr, "Expecting 2nd comma (W<page>,<reg>,<value>) in %s\n",
+                  argv[arg]);
+          break;
+        }
+        value = strtol(endn + 1, &endn, 0);
+        if (endn != argv[arg]) argv[arg] = endn - 1;
+        printf("Write 0x%x, 0x%x, 0x%x\n", page, reg, value);
+        ch_write_reg(i2cdev, page, reg, value);
+        break;
       }
 
     case 'G':
       {
-	int page, reg, value;
-	char *endn;
+        int page, reg, value;
+        char *endn;
 
-	page = strtol(argv[arg] + 1, &endn, 0);
-	if (endn[0] != ',') {
-	  fprintf(stderr, "Expecting 1st comma (G<page>,<reg>) in %s\n",
-		  argv[arg]);
-	  break;
-	}
-	reg = strtol(endn + 1, &endn, 0);
-	if (endn != argv[arg]) argv[arg] = endn - 1;
-	value = ch_read_reg(i2cdev, page, reg);
-	printf("Read 0x%x, 0x%x --> 0x%x\n", page, reg, value);
-	break;
+        page = strtol(argv[arg] + 1, &endn, 0);
+        if (endn[0] != ',') {
+          fprintf(stderr, "Expecting 1st comma (G<page>,<reg>) in %s\n",
+                  argv[arg]);
+          break;
+        }
+        reg = strtol(endn + 1, &endn, 0);
+        if (endn != argv[arg]) argv[arg] = endn - 1;
+        value = ch_read_reg(i2cdev, page, reg);
+        printf("Read 0x%x, 0x%x --> 0x%x\n", page, reg, value);
+        break;
       }
 
     case 'r':
@@ -253,18 +252,18 @@ int main(int argc, char *argv[])
 
     case 'l':
       if (arg > (argc-1)) {
-	fprintf(stderr, "No firmware filename found\n");
-	usage(argv[0]);
-	break;
+        fprintf(stderr, "No firmware filename found\n");
+        usage(argv[0]);
+        break;
       }
       printf("LOAD firmware %s\n", argv[arg+1]);
       ch_load_firmware(i2cdev, argv[arg+1]);
       arg++;
       /* Make sure continuation check fails below */
       if (argv[arg][0])
-	argv[arg][1] = 0;
+        argv[arg][1] = 0;
       else
-	argv[arg]--;
+        argv[arg]--;
       break;
 
     case 'v':
@@ -272,40 +271,40 @@ int main(int argc, char *argv[])
       ch_mcu_version(i2cdev, 1, 1);
       break;
 
-    case 'E': 
+    case 'E':
       {
         int i = 1;
 
         while (show_test_edid(stdout, i) == 0) i++;
-	break;
+        break;
     }
     case 'e':
       {
-	int ext, i;
-	unsigned char edid[MAX_EDID_EXT*128];
+        int ext, i;
+        unsigned char edid[MAX_EDID_EXT*128];
 
-	printf("Get EDID\n");
-	err = ch_get_edid(i2cdev, 0, &edid[0]);
-	if (err < 0) {
-	  fprintf(stderr, "Get EDID Failed (initial block)\n");
-	  exit(1);
-	}
-	show_edid_data(stdout, &edid[0], 128, 0);
-	ext = edid[126]; // Number of extension blocks
-	if (ext > MAX_EDID_EXT) {
-	  fprintf(stderr, "Too many EDID extensions (%d), using %d\n",
-		  ext, MAX_EDID_EXT);
-	  ext = MAX_EDID_EXT;
-	}
-	for(i = 1; i <= ext; i++) {
-	  err = ch_get_edid(i2cdev, i, &edid[i*128]);
-	  if (err < 0) {
-	    fprintf(stderr, "Get EDID Failed (extension block %d)\n", i);
-	    exit(1);
-	  }
-	  show_edid_data(stdout, &edid[i*128], 128, i * 128);
-	}
-	show_edid(stdout, &edid[0], ext);
+        printf("Get EDID\n");
+        err = ch_get_edid(i2cdev, 0, &edid[0]);
+        if (err < 0) {
+          fprintf(stderr, "Get EDID Failed (initial block)\n");
+          exit(1);
+        }
+        show_edid_data(stdout, &edid[0], 128, 0);
+        ext = edid[126]; // Number of extension blocks
+        if (ext > MAX_EDID_EXT) {
+          fprintf(stderr, "Too many EDID extensions (%d), using %d\n",
+                  ext, MAX_EDID_EXT);
+          ext = MAX_EDID_EXT;
+        }
+        for(i = 1; i <= ext; i++) {
+          err = ch_get_edid(i2cdev, i, &edid[i*128]);
+          if (err < 0) {
+            fprintf(stderr, "Get EDID Failed (extension block %d)\n", i);
+            exit(1);
+          }
+          show_edid_data(stdout, &edid[i*128], 128, i * 128);
+        }
+        show_edid(stdout, &edid[0], ext);
       }
       break;
     case 'a':
@@ -339,5 +338,3 @@ int main(int argc, char *argv[])
   if (gpiodev) close(gpiodev);
   return 0;
 }
-
-    
