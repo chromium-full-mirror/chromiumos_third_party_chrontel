@@ -191,24 +191,22 @@ int show_test_edid(FILE *outfile, int n)
 /* Print an edid descriptor block (standard case is at 54 + 18*i) */
 void show_edid_dtd(FILE* outfile, unsigned char* base)
 {
-  int pelclk = base[0] + (base[1]<<8);
+  int pelclk = base[DTD_PCLK_LO] + (base[DTD_PCLK_HI]<<8);
 
   if (pelclk != 0) {
-    int hres = base[2] + ((base[4] & 0xf0)<<4);
-    int hbl = base[3] + ((base[4] & 0x0f)<<8);
-    int vres = base[5] + ((base[7] & 0xf0)<<4);
-    int vbl = base[6] + ((base[7] & 0x0f)<<8);
-    int hso = base[8] + ((base[11] & 0xc0)<<2);
-    int hsw = base[9] + ((base[11] & 0x30)<<4);
-    int vso = (base[10] >> 4) +
-      ((base[11] & 0x0c)<<2);
-    int vsw = (base[10] & 0xf) +
-      ((base[11] & 0x03)<<4);
-    int hsiz = base[12] + ((base[14] & 0xf0)<<4);
-    int vsiz = base[13] + ((base[14] & 0x0f)<<8);
-    int hbdr = base[15];
-    int vbdr = base[16];
-    int mdflg = base[17];
+    int hres = base[DTD_HA_LO] + ((base[DTD_HABL_HI] & 0xf0)<<4);
+    int hbl = base[DTD_HBL_LO] + ((base[DTD_HABL_HI] & 0x0f)<<8);
+    int vres = base[DTD_VA_LO] + ((base[DTD_VABL_HI] & 0xf0)<<4);
+    int vbl = base[DTD_VBL_LO] + ((base[DTD_VABL_HI] & 0x0f)<<8);
+    int hso = base[DTD_HSO_LO] + ((base[DTD_HVSX_HI] & 0xc0)<<2);
+    int hsw = base[DTD_HSW_LO] + ((base[DTD_HVSX_HI] & 0x30)<<4);
+    int vso = (base[DTD_VSX_LO] >> 4) + ((base[DTD_HVSX_HI] & 0x0c)<<2);
+    int vsw = (base[DTD_VSX_LO] & 0xf) + ((base[DTD_HVSX_HI] & 0x03)<<4);
+    int hsiz = base[DTD_HSIZE_LO] + ((base[DTD_HVSIZE_HI] & 0xf0)<<4);
+    int vsiz = base[DTD_VSIZE_LO] + ((base[DTD_HVSIZE_HI] & 0x0f)<<8);
+    int hbdr = base[DTD_HBORDER];
+    int vbdr = base[DTD_VBORDER];
+    int mdflg = base[DTD_FLAGS];
 
     int refr = (pelclk * 10000)/((hres+hbl)*(vres+vbl));
     int refm = (pelclk * 10000)%((hres+hbl)*(vres+vbl));
@@ -227,29 +225,32 @@ void show_edid_dtd(FILE* outfile, unsigned char* base)
     fprintf(outfile, "Size %dx%dmm, Border %dx%d pixels\n",
             hsiz, vsiz, hbdr, vbdr);
   } else {
-    char monstr[18];
+    char monstr[DTD_SIZE];
     int stp;
-    switch (base[3]) {
-    case 0xff:
-    case 0xfe:
-    case 0xfc:
-      strncpy(monstr, (char *)base+5, 13);
+    switch (base[DTD_TYPETAG]) {
+    case DTDTYPE_SERIAL:
+    case DTDTYPE_STRING:
+    case DTDTYPE_NAME:
+      strncpy(monstr, (char *)base+DTD_STRING, 13);
       for(stp = 0; stp < 13; stp++) if (monstr[stp] == 0x0a) monstr[stp] = 0;
       monstr[stp] = 0;
-      if (base[3] != 0xfe)
+      if (base[3] != DTDTYPE_STRING)
         fprintf(outfile, "%s: %s\n",
-                (base[3] == 0xfc) ? "Name" : "Serial", monstr);
+                (base[3] == DTDTYPE_NAME) ? "Name" : "Serial", monstr);
       else
         fprintf(outfile, "%s\n", monstr);
       break;
 
-    case 0xfd:
+    case DTDTYPE_LIMITS:
       fprintf(outfile, "Range V %d - %d Hz, H %d - %d kHz, Pel <= %d MHz\n",
-              base[5], base[6], base[7], base[8], base[9]*10);
+              base[DTD_MINV_HZ], base[DTD_MAXV_HZ],
+              base[DTD_MINH_kHZ], base[DTD_MAXH_kHZ],
+              base[DTD_MAXCLK_100kHZ]*10);
       break;
 
     default:
-      fprintf(outfile, "Undecoded descriptor block type 0x%x\n", base[3]);
+      fprintf(outfile, "Undecoded descriptor block type 0x%x\n",
+              base[DTD_TYPETAG]);
       break;
     }
   }
@@ -262,216 +263,265 @@ char *sad_audio_type[16] = {
   "ATRAC", "SACD", "DD+", "DTS-HD",
   "MLP/Dolby TrueHD", "DST Audio", "WMA Pro", "Reserved"};
 
+char *uscanstr[4] = {
+  "not supported",
+  "always overscan",
+  "always underscan",
+  "supports both over- and underscan"};
+
 void show_cea_timing(FILE* outfile, unsigned char* edid_ext)
 {
   int i, dbc;
-  int off_dtd = edid_ext[2];
+  int off_dtd = edid_ext[CEA_DTD_OFFSET];
   int n_dtd;
   fprintf(outfile, "Found CEA EDID Timing Extension rev 3\n");
 
-  if (off_dtd < 4) {
+  if (off_dtd < CEA_DBC_START) {
     fprintf(outfile, "Block is empty (off_dtd = %d)\n", off_dtd);
     return;
   }
-  /* Offset 126 must be 0 and 127 a checksum, have at least one pad byte */
-  n_dtd = (125 - off_dtd)/18;
+  /* Ends with 0 and a checksum, have at least one pad byte */
+  n_dtd = (CEA_LAST_PAD - off_dtd)/DTD_SIZE;
   fprintf(outfile,
           "Block has DTDs starting at offset %d (thus %d bytes of DBCs)\n",
-          off_dtd, off_dtd - 4);
+          off_dtd, off_dtd - CEA_DBC_START);
   fprintf(outfile, "There is space for max %d DTDs in the extension\n", n_dtd);
   fprintf(outfile,
           "There are %d native DTDs (between regular and extensions)\n",
-          edid_ext[3] & 0xf);
+          edid_ext[CEA_NATIVE_DTDS] & 0xf);
+  fprintf(outfile, "IT formats %sdefault to underscan\n",
+          (edid_ext[CEA_SUPPORT] & 0x80) ? "" : "do not ");
   fprintf(outfile,
-          "Support: %sunderscan, %sbasic audio, %sYCrCb 4:4:4, %sYCrCb 4:2:2\n",
-          (edid_ext[3] & 0x80) ? "" : "no ",
-          (edid_ext[3] & 0x40) ? "" : "no ",
-          (edid_ext[3] & 0x20) ? "" : "no ",
-          (edid_ext[3] & 0x10) ? "" : "no ");
+          "Support: %sbasic audio, %sYCrCb 4:4:4, %sYCrCb 4:2:2\n",
+          (edid_ext[CEA_SUPPORT] & 0x40) ? "" : "no ",
+          (edid_ext[CEA_SUPPORT] & 0x20) ? "" : "no ",
+          (edid_ext[CEA_SUPPORT] & 0x10) ? "" : "no ");
 
   /* Between offset 4 and off_dtd is the Data Block Collection */
   /* There may be none, in which case off_dtd == 4             */
-  dbc = 4;
+  dbc = CEA_DBC_START;
   while (dbc < off_dtd) {
-    int db_len = edid_ext[dbc] & 0x1f;
+    int db_len = edid_ext[dbc+DBC_TAG_LENGTH] & DBC_LEN_MASK;
     int dbp = dbc + 1;
 
-    switch (edid_ext[dbc] >> 5) {
+    switch (edid_ext[dbc+DBC_TAG_LENGTH] >> DBC_TAG_SHIFT) {
 
-    case 1:
+    case DBC_TAG_AUDIO:
       /* Audio Data Block */
       while (dbp < (dbc + db_len + 1)) {
-        int atype =(edid_ext[dbp]>>3) & 0xf;
-        fprintf(outfile, "Audio: %d channel %s: ", edid_ext[dbp] & 0x7,
+        int atype =(edid_ext[dbp + DBCA_FORMAT]>>3) & 0xf;
+        fprintf(outfile, "Audio: %d channel %s: ",
+                edid_ext[dbp + DBCA_FORMAT] & 0x7,
                 sad_audio_type[atype]);
-        dbp++;
-        if (edid_ext[dbp] & 0x40) fprintf(outfile, "192k ");
-        if (edid_ext[dbp] & 0x20) fprintf(outfile, "176k ");
-        if (edid_ext[dbp] & 0x10) fprintf(outfile, "96k ");
-        if (edid_ext[dbp] & 0x08) fprintf(outfile, "88k ");
-        if (edid_ext[dbp] & 0x04) fprintf(outfile, "48k ");
-        if (edid_ext[dbp] & 0x02) fprintf(outfile, "44k ");
-        if (edid_ext[dbp] & 0x01) fprintf(outfile, "32k ");
-        dbp++;
+        if (edid_ext[dbp + DBCA_RATE] & 0x40) fprintf(outfile, "192k ");
+        if (edid_ext[dbp + DBCA_RATE] & 0x20) fprintf(outfile, "176k ");
+        if (edid_ext[dbp + DBCA_RATE] & 0x10) fprintf(outfile, "96k ");
+        if (edid_ext[dbp + DBCA_RATE] & 0x08) fprintf(outfile, "88k ");
+        if (edid_ext[dbp + DBCA_RATE] & 0x04) fprintf(outfile, "48k ");
+        if (edid_ext[dbp + DBCA_RATE] & 0x02) fprintf(outfile, "44k ");
+        if (edid_ext[dbp + DBCA_RATE] & 0x01) fprintf(outfile, "32k ");
+
         if (atype == 1)
           fprintf(outfile, "%s%s%s\n",
-                  (edid_ext[dbp] & 0x4) ? "24-bit ":"",
-                  (edid_ext[dbp] & 0x2) ? "20-bit ":"",
-                  (edid_ext[dbp] & 0x1) ? "16-bit":"");
+                  (edid_ext[dbp + DBCA_INFO] & 0x4) ? "24-bit ":"",
+                  (edid_ext[dbp + DBCA_INFO] & 0x2) ? "20-bit ":"",
+                  (edid_ext[dbp + DBCA_INFO] & 0x1) ? "16-bit":"");
+        else if ((atype >= 2) && (atype <= 8))
+          fprintf(outfile, "Max %dkHz\n", edid_ext[dbp + DBCA_INFO] * 8);
         else
-          fprintf(outfile, "Max %dkHz\n", edid_ext[dbp] * 8);
-        dbp++;
+          fprintf(outfile, "Codec vendor flags 0x%02x\n",
+                  edid_ext[dbp + DBCA_INFO]);
+        dbp += DBCA_SIZE;
       }
       break;
 
-    case 2:
+    case DBC_TAG_VIDEO:
       /* Vidio Data Block */
       while (dbp < (dbc + db_len + 1)) {
-        int vtype = edid_ext[dbp] & 0x7f;
+        int vtype = edid_ext[dbp + DBCV_CODE] & 0x7f;
         fprintf(outfile, "Video: Code %d %s\n", vtype,
-                (edid_ext[dbp] & 0x80) ? "(native)":"");
-        dbp++;
+                (edid_ext[dbp + DBCV_CODE] & 0x80) ? "(native)":"");
+        dbp += DBCV_SIZE;
       }
       break;
 
-    case 3:
+    case DBC_TAG_VENDOR:
       /* Vendor Data Block */
-      if ((edid_ext[dbp+0] == 0x03) &&
-          (edid_ext[dbp+1] == 0x0C) &&
-          (edid_ext[dbp+2] == 0x00)) {
+      if ((edid_ext[dbp+DBCVND_IEEE_LO] == 0x03) &&
+          (edid_ext[dbp+DBCVND_IEEE_MID] == 0x0C) &&
+          (edid_ext[dbp+DBCVND_IEEE_HI] == 0x00)) {
         fprintf(outfile,
                 "HDMI Vendor block (CEC @0x%04x):\nSupport: %s%s%s%s%s%s\n",
-                edid_ext[dbp+3] + (edid_ext[dbp+4]<<8),
-                (edid_ext[dbp+5] & 0x80) ? "AI ":"",
-                (edid_ext[dbp+5] & 0x40) ? "DC_48bit ":"",
-                (edid_ext[dbp+5] & 0x20) ? "DC_36bit ":"",
-                (edid_ext[dbp+5] & 0x10) ? "DC_30bit ":"",
-                (edid_ext[dbp+5] & 0x08) ? "DC_Y444 ":"",
-                (edid_ext[dbp+5] & 0x01) ? "DVI_Dual":"");
-        if (edid_ext[dbp+6] > 0)
-          fprintf(outfile, "Max TMDS Frequency %dMHz\n", edid_ext[dbp+6]*5);
-        if (edid_ext[dbp+7] & 0x80)
+                edid_ext[dbp+DBCVHDMI_CEC_LO] +
+                (edid_ext[dbp+DBCVHDMI_CEC_HI]<<8),
+                (edid_ext[dbp+DBCVHDMI_SUPPORT] & 0x80) ? "AI ":"",
+                (edid_ext[dbp+DBCVHDMI_SUPPORT] & 0x40) ? "DC_48bit ":"",
+                (edid_ext[dbp+DBCVHDMI_SUPPORT] & 0x20) ? "DC_36bit ":"",
+                (edid_ext[dbp+DBCVHDMI_SUPPORT] & 0x10) ? "DC_30bit ":"",
+                (edid_ext[dbp+DBCVHDMI_SUPPORT] & 0x08) ? "DC_Y444 ":"",
+                (edid_ext[dbp+DBCVHDMI_SUPPORT] & 0x01) ? "DVI_Dual":"");
+        if (edid_ext[dbp+DBCVHDMI_MAXTMDS_5MHz] > 0)
+          fprintf(outfile, "Max TMDS Frequency %dMHz\n",
+                  edid_ext[dbp+DBCVHDMI_MAXTMDS_5MHz]*5);
+        if (edid_ext[dbp+DBCVHDMI_LATFLAGS] & 0x80)
           fprintf(outfile, "Video latency %dms, audio latency %dms\n",
-                  2 * (edid_ext[dbp+8] - 1), 2 * (edid_ext[dbp+9] - 1));
+                  2 * (edid_ext[dbp+DBCVHDMI_VLAT] - 1),
+                  2 * (edid_ext[dbp+DBCVHDMI_ALAT] - 1));
         if (edid_ext[dbp+7] & 0x40)
           fprintf(outfile,
                   "Interlaced Video latency %dms, audio latency %dms\n",
-                  2 * (edid_ext[dbp+10] - 1), 2 * (edid_ext[dbp+11] - 1));
+                  2 * (edid_ext[dbp+DBCVHDMI_IVLAT] - 1),
+                  2 * (edid_ext[dbp+DBCVHDMI_IALAT] - 1));
       }
       else
         fprintf(outfile, "Vendor block for %02x-%02x-%02x",
-                edid_ext[dbp+0], edid_ext[dbp+1], edid_ext[dbp+2]);
+                edid_ext[dbp+DBCVND_IEEE_LO], edid_ext[dbp+DBCVND_IEEE_MID],
+                edid_ext[dbp+DBCVND_IEEE_HI]);
       break;
 
-    case 4:
+    case DBC_TAG_SPEAKER:
       /* Speaker allocation Block */
       fprintf(outfile, "Speakers: %s%s%s%s%s%s%s\n",
-              (edid_ext[dbp+0] & 0x40) ? "RearCenter L/R ":"",
-              (edid_ext[dbp+0] & 0x20) ? "FrontCenter L/R ":"",
-              (edid_ext[dbp+0] & 0x10) ? "Rear Center":"",
-              (edid_ext[dbp+0] & 0x08) ? "Rear L/R ":"",
-              (edid_ext[dbp+0] & 0x04) ? "Front Center ":"",
-              (edid_ext[dbp+0] & 0x02) ? "LFE ":"",
-              (edid_ext[dbp+0] & 0x01) ? "Front L/R ":"");
+              (edid_ext[dbp+DBCSP_ALLOC] & 0x40) ? "RearCenter L/R ":"",
+              (edid_ext[dbp+DBCSP_ALLOC] & 0x20) ? "FrontCenter L/R ":"",
+              (edid_ext[dbp+DBCSP_ALLOC] & 0x10) ? "Rear Center":"",
+              (edid_ext[dbp+DBCSP_ALLOC] & 0x08) ? "Rear L/R ":"",
+              (edid_ext[dbp+DBCSP_ALLOC] & 0x04) ? "Front Center ":"",
+              (edid_ext[dbp+DBCSP_ALLOC] & 0x02) ? "LFE ":"",
+              (edid_ext[dbp+DBCSP_ALLOC] & 0x01) ? "Front L/R ":"");
       break;
+
+    case DBC_TAG_EXTENDED:
+      switch (edid_ext[dbp + DBC_ETAG]) {
+      case DBC_ETAG_VCDB:
+        fprintf(outfile, "Video Capabilities:\n");
+        fprintf(outfile, "  Quantization range selectable: %s\n",
+                (edid_ext[dbp + VCDB_FLAGS] & 0x40) ? "unknown":"via AVI Q");
+        /* PT field zero implies no data, just use IT and CE fields */
+        if (VCDB_S_PT(edid_ext[dbp + VCDB_FLAGS]))
+          fprintf(outfile, "  Preferred mode %s\n",
+                  uscanstr[VCDB_S_PT(edid_ext[dbp + VCDB_FLAGS])]);
+        fprintf(outfile, "  IT modes %s\n",
+                uscanstr[VCDB_S_IT(edid_ext[dbp + VCDB_FLAGS])]);
+        fprintf(outfile, "  CE modes %s\n",
+                uscanstr[VCDB_S_CE(edid_ext[dbp + VCDB_FLAGS])]);
+        break;
+
+      case DBC_ETAG_COL:
+        fprintf(outfile, "Colorimetry supports %s%s metadata 0x%x\n",
+                (edid_ext[dbp+COL_FLAGS] & 0x02) ? "HD (YCC709) ":"",
+                (edid_ext[dbp+COL_FLAGS] & 0x01) ? "SD (YCC601) ":"",
+                (edid_ext[dbp+COL_META] & 0x07));
+        break;
+
+      default:
+        fprintf(outfile,
+                "Unknown Data block with extended tag 0x%x,  length 0x%x\n",
+                edid_ext[dbc + DBC_ETAG], db_len);
+      }
 
     default:
       fprintf(outfile, "Unknown Data Block with type tag 0x%x, length 0x%x\n",
-              edid_ext[dbc] >> 5, db_len);
+              edid_ext[dbc+DBC_TAG_LENGTH] >> DBC_TAG_SHIFT, db_len);
       break;
     }
     dbc += db_len + 1;
   }
   for(i=0; i < n_dtd; i++) {
     /* Find 0,0 when we hit padding */
-    if ((edid_ext[off_dtd + 18*i] == 0) &&
-        (edid_ext[off_dtd + 18*i + 1] == 0)) {
+    if ((edid_ext[off_dtd + DTD_SIZE*i + DTD_PCLK_LO] == 0) &&
+        (edid_ext[off_dtd + DTD_SIZE*i + DTD_PCLK_HI] == 0)) {
       fprintf(outfile, "End of DTD padding reached after %d DTDs\n", i);
       break;
     }
-    show_edid_dtd(outfile, edid_ext + (off_dtd + 18*i));
+    show_edid_dtd(outfile, edid_ext + (off_dtd + DTD_SIZE*i));
   }
 }
 
 
 int edid_valid(unsigned char *edid_data)
 {
-  return ((edid_data[0]==0x00) && (edid_data[1]==0xff) &&
-          (edid_data[2]==0xff) && (edid_data[3]==0xff) &&
-          (edid_data[4]==0xff) && (edid_data[5]==0xff) &&
-          (edid_data[6]==0xff) && (edid_data[7]==0x00));
+  return ((edid_data[EDID_HDR+0]==0x00) && (edid_data[EDID_HDR+1]==0xff) &&
+          (edid_data[EDID_HDR+2]==0xff) && (edid_data[EDID_HDR+3]==0xff) &&
+          (edid_data[EDID_HDR+4]==0xff) && (edid_data[EDID_HDR+5]==0xff) &&
+          (edid_data[EDID_HDR+6]==0xff) && (edid_data[EDID_HDR+7]==0x00));
 }
 
 int edid_lpcm_support(unsigned char *edid_data, int ext)
 {
-  unsigned char* edid_ext = edid_data + 128;
+  unsigned char* edid_ext = edid_data + EDID_SIZE;
   int dbc;
-  int off_dtd = edid_ext[2];
+  int off_dtd = edid_ext[CEA_DTD_OFFSET];
 
   /* No if no extension, which can happen for two reasons */
   /* a) ext < 1 indicates no data was read into the extension area */
   /* b) edid_data[126] < 1 indicates EDID does not use extension area */
-  if ((ext < 1) || (edid_data[126] < 1))
+  if ((ext < 1) || (edid_data[EDID_EXT_FLAG] < 1))
     return 0;
 
   /* No if extension is not CEA rev 3 */
-  if (!((edid_ext[0] == 0x02) && (edid_ext[1] == 0x03)))
+  if (!((edid_ext[EEXT_TAG] == 0x02) && (edid_ext[EEXT_REV] == 0x03)))
     return 0;
 
-  /* No if block is empty */
-  if (off_dtd < 4)
-    return 0;
+  /* If DBC block is not empty look for audio info */
+  if (off_dtd > CEA_DBC_START) {
 
-  /* Between offset 4 and off_dtd is the Data Block Collection */
-  /* There may be none, in which case off_dtd == 4             */
-  dbc = 4;
-  while (dbc < off_dtd) {
-    int db_len = edid_ext[dbc] & 0x1f;
-    int dbp = dbc + 1;
+    /* Between offset 4 and off_dtd is the Data Block Collection */
+    /* There may be none, in which case off_dtd == 4             */
+    dbc = CEA_DBC_START;
+    while (dbc < off_dtd) {
+      int db_len = edid_ext[dbc + DBC_TAG_LENGTH] & DBC_LEN_MASK;
+      int dbp = dbc + 1;
 
-    if (((edid_ext[dbc] >> 5) == 1) &&
-        (((edid_ext[dbp]>>3) & 0xF) == 1)) {
-      /* Audio Data Block, type LPCM, return bitmap of frequencies */
-      return edid_ext[dbp+1];
+      if (((edid_ext[dbc+DBC_TAG_LENGTH] >> DBC_TAG_SHIFT) == DBC_TAG_AUDIO) &&
+          (((edid_ext[dbp + DBCA_FORMAT]>>3) & 0xF) == DBCA_FMT_LPCM)) {
+        /* Audio Data Block, type LPCM, return bitmap of frequencies */
+        return edid_ext[dbp+DBCA_RATE];
+      }
+      dbc += db_len + 1;
     }
-    dbc += db_len + 1;
+    /* Get here if failed to find LPCM info in DBC block */
   }
+  /* Last chance is to look for Basic Audio return bitmap for 32, 44.1, 48 */
+  if (edid_ext[CEA_SUPPORT] & 0x40)
+    return 0x7;
+
   return 0;
 }
 
 
 int edid_has_hdmi_info(unsigned char *edid_data, int ext)
 {
-  unsigned char* edid_ext = edid_data + 128;
+  unsigned char* edid_ext = edid_data + EDID_SIZE;
   int dbc;
-  int off_dtd = edid_ext[2];
+  int off_dtd = edid_ext[CEA_DTD_OFFSET];
 
   /* No if no extension, which can happen for two reasons */
   /* a) ext < 1 indicates no data was read into the extension area */
   /* b) edid_data[126] < 1 indicates EDID does not use extension area */
-  if ((ext < 1) || (edid_data[126] < 1))
+  if ((ext < 1) || (edid_data[EDID_EXT_FLAG] < 1))
     return 0;
 
   /* No if extension is not CEA rev 3 */
-  if (!((edid_ext[0] == 0x02) && (edid_ext[1] == 0x03)))
+  if (!((edid_ext[EEXT_TAG] == 0x02) && (edid_ext[EEXT_REV] == 0x03)))
     return 0;
 
   /* No if block is empty */
-  if (off_dtd < 4)
+  if (off_dtd < CEA_DBC_START)
     return 0;
 
   /* Between offset 4 and off_dtd is the Data Block Collection */
   /* There may be none, in which case off_dtd == 4             */
-  dbc = 4;
+  dbc = CEA_DBC_START;
   while (dbc < off_dtd) {
-    int db_len = edid_ext[dbc] & 0x1f;
+    int db_len = edid_ext[dbc + DBC_TAG_LENGTH] & DBC_LEN_MASK;
     int dbp = dbc + 1;
 
-    if ((edid_ext[dbc] >> 5) == 3) {
+    if ((edid_ext[dbc + DBC_TAG_LENGTH] >> DBC_TAG_SHIFT) == DBC_TAG_VENDOR) {
       /* Vendor Data Block */
-      if ((edid_ext[dbp+0] == 0x03) &&
-          (edid_ext[dbp+1] == 0x0C) &&
-          (edid_ext[dbp+2] == 0x00))
+      if ((edid_ext[dbp+DBCVND_IEEE_LO] == 0x03) &&
+          (edid_ext[dbp+DBCVND_IEEE_MID] == 0x0C) &&
+          (edid_ext[dbp+DBCVND_IEEE_HI] == 0x00))
         return 1;
       }
     dbc += db_len + 1;
@@ -483,8 +533,8 @@ int edid_has_hdmi_info(unsigned char *edid_data, int ext)
 void show_edid(FILE *outfile, unsigned char *edid_data, int ext)
 {
   int i;
-  int edidver = edid_data[18];
-  int edidrev = edid_data[19];
+  int edidver = edid_data[EDID_VERSION];
+  int edidrev = edid_data[EDID_REVISION];
   unsigned char* edid_ext;
 
   if (!edid_valid(edid_data)) {
@@ -493,54 +543,57 @@ void show_edid(FILE *outfile, unsigned char *edid_data, int ext)
   }
   /* unsigned edid_data so the right shifts pull in zeros */
   fprintf(outfile, "Manufacturer ID %c%c%c, product ID 0x%x\n",
-          '@' + (edid_data[8]>>2),
-          '@' + ((edid_data[8] & 3)<<3) + (edid_data[9]>>5),
-          '@' + (edid_data[9] & 0x1f),
-          edid_data[10] + (edid_data[11]<<8));
+          '@' + (edid_data[EDID_MFG_EID]>>2),
+          '@' + (((edid_data[EDID_MFG_EID] & 3)<<3) +
+                 (edid_data[EDID_MFG_EID+1]>>5)),
+          '@' + (edid_data[EDID_MFG_EID+1] & 0x1f),
+          edid_data[EDID_MFG_PROD_LO] + (edid_data[EDID_MFG_PROD_HI]<<8));
   fprintf(outfile, "Manufactured wk %d of %d. Edid version %d.%d\n",
-          edid_data[16], 1990+edid_data[17], edidver, edidrev);
+          edid_data[EDID_MFG_WEEK], 1990+edid_data[EDID_MFG_YEAR],
+          edidver, edidrev);
   fprintf(outfile,
           "Input: %s, vid level %d, %s, %s %s %s %s sync, %dx%dcm, Gamma %f\n",
-          (edid_data[20] & 0x80) ? "digital" : "analog",
-          (edid_data[20]>>5) & 3,
-          (edid_data[20] * 0x10) ? "Blank to black" : "",
-          (edid_data[20] * 0x08) ? "Separate" : "",
-          (edid_data[20] * 0x04) ? "Composite" : "",
-          (edid_data[20] * 0x02) ? "On-green" : "",
-          (edid_data[20] * 0x01) ? "Serration V" : "",
-          edid_data[21], edid_data[22], 1.0+((float)edid_data[23]/100.0));
+          (edid_data[EDID_VIDEO_IN] & 0x80) ? "digital" : "analog",
+          (edid_data[EDID_VIDEO_IN]>>5) & 3,
+          (edid_data[EDID_VIDEO_IN] * 0x10) ? "Blank to black" : "",
+          (edid_data[EDID_VIDEO_IN] * 0x08) ? "Separate" : "",
+          (edid_data[EDID_VIDEO_IN] * 0x04) ? "Composite" : "",
+          (edid_data[EDID_VIDEO_IN] * 0x02) ? "On-green" : "",
+          (edid_data[EDID_VIDEO_IN] * 0x01) ? "Serration V" : "",
+          edid_data[EDID_MAX_HSIZE], edid_data[EDID_MAX_VSIZE],
+          1.0+((float)edid_data[EDID_GAMMA]/100.0));
   fprintf(outfile, "Features: %s %s %s %s %s %s %s\n",
-          (edid_data[24] & 0x80) ? "standby" : "",
-          (edid_data[24] & 0x40) ? "suspend" : "",
-          (edid_data[24] & 0x20) ? "active-off" : "",
-          (edid_data[24] & 0x18) ? "colour" : "monochrome",
-          (edid_data[24] & 0x04) ? "std-cspace" : "non-std-cspace",
-          (edid_data[24] & 0x02) ? "preferred-timing" : "",
-          (edid_data[24] & 0x02) ? "default-GTF" : "");
+          (edid_data[EDID_FEATURES] & 0x80) ? "standby" : "",
+          (edid_data[EDID_FEATURES] & 0x40) ? "suspend" : "",
+          (edid_data[EDID_FEATURES] & 0x20) ? "active-off" : "",
+          (edid_data[EDID_FEATURES] & 0x18) ? "colour" : "monochrome",
+          (edid_data[EDID_FEATURES] & 0x04) ? "std-cspace" : "non-std-cspace",
+          (edid_data[EDID_FEATURES] & 0x02) ? "preferred-timing" : "",
+          (edid_data[EDID_FEATURES] & 0x01) ? "default-GTF" : "");
 
   fprintf(outfile, "Established Timing:\n");
-  if (edid_data[35] & 0x80) fprintf(outfile, "720x400@70\n");
-  if (edid_data[35] & 0x40) fprintf(outfile, "720x400@88\n");
-  if (edid_data[35] & 0x20) fprintf(outfile, "640x480@60\n");
-  if (edid_data[35] & 0x10) fprintf(outfile, "640x480@67\n");
-  if (edid_data[35] & 0x08) fprintf(outfile, "640x480@72\n");
-  if (edid_data[35] & 0x04) fprintf(outfile, "640x480@75\n");
-  if (edid_data[35] & 0x02) fprintf(outfile, "800x600@56\n");
-  if (edid_data[35] & 0x01) fprintf(outfile, "800x600@60\n");
-  if (edid_data[36] & 0x80) fprintf(outfile, "800x600@72\n");
-  if (edid_data[36] & 0x40) fprintf(outfile, "800x600@75\n");
-  if (edid_data[36] & 0x20) fprintf(outfile, "832x624@75\n");
-  if (edid_data[36] & 0x10) fprintf(outfile, "1024x768i@87\n");
-  if (edid_data[36] & 0x08) fprintf(outfile, "1024x768@60\n");
-  if (edid_data[36] & 0x04) fprintf(outfile, "1024x768@70\n");
-  if (edid_data[36] & 0x02) fprintf(outfile, "1024x768@75\n");
-  if (edid_data[36] & 0x01) fprintf(outfile, "1280x1024@75\n");
-  if (edid_data[36] & 0x80) fprintf(outfile, "1152x870@75\n");
+  if (edid_data[EDID_ESTTIME1] & 0x80) fprintf(outfile, "720x400@70\n");
+  if (edid_data[EDID_ESTTIME1] & 0x40) fprintf(outfile, "720x400@88\n");
+  if (edid_data[EDID_ESTTIME1] & 0x20) fprintf(outfile, "640x480@60\n");
+  if (edid_data[EDID_ESTTIME1] & 0x10) fprintf(outfile, "640x480@67\n");
+  if (edid_data[EDID_ESTTIME1] & 0x08) fprintf(outfile, "640x480@72\n");
+  if (edid_data[EDID_ESTTIME1] & 0x04) fprintf(outfile, "640x480@75\n");
+  if (edid_data[EDID_ESTTIME1] & 0x02) fprintf(outfile, "800x600@56\n");
+  if (edid_data[EDID_ESTTIME1] & 0x01) fprintf(outfile, "800x600@60\n");
+  if (edid_data[EDID_ESTTIME2] & 0x80) fprintf(outfile, "800x600@72\n");
+  if (edid_data[EDID_ESTTIME2] & 0x40) fprintf(outfile, "800x600@75\n");
+  if (edid_data[EDID_ESTTIME2] & 0x20) fprintf(outfile, "832x624@75\n");
+  if (edid_data[EDID_ESTTIME2] & 0x10) fprintf(outfile, "1024x768i@87\n");
+  if (edid_data[EDID_ESTTIME2] & 0x08) fprintf(outfile, "1024x768@60\n");
+  if (edid_data[EDID_ESTTIME2] & 0x04) fprintf(outfile, "1024x768@70\n");
+  if (edid_data[EDID_ESTTIME2] & 0x02) fprintf(outfile, "1024x768@75\n");
+  if (edid_data[EDID_ESTTIME2] & 0x01) fprintf(outfile, "1280x1024@75\n");
+  if (edid_data[EDID_MFGTIME]  & 0x80) fprintf(outfile, "1152x870@75\n");
 
   fprintf(outfile, "Standard timing:\n");
-  for(i=0; i < 8; i++) {
-    int hinfo = edid_data[38+2*i];
-    int vinfo = edid_data[39+2*i];
+  for(i=0; i < EDID_N_STDTIME; i++) {
+    int hinfo = edid_data[EDID_STDTIMEH+2*i];
+    int vinfo = edid_data[EDID_STDTIMEV+2*i];
     int hres, vres;
 
     /* 01 01 is pad by spec, but 00 00 and 20 20 are see in wild */
@@ -570,19 +623,49 @@ void show_edid(FILE *outfile, unsigned char *edid_data, int ext)
   }
 
   fprintf(outfile, "Descriptor blocks:\n");
-  for(i = 0; i < 4; i++) {
-    show_edid_dtd(outfile, edid_data + (54 + i * 18));
+  for(i = 0; i < EDID_N_DTDS; i++) {
+    show_edid_dtd(outfile, edid_data + (EDID_DTD_BASE + i * DTD_SIZE));
   }
-  fprintf(outfile, "EDID contains %d extensions\n", edid_data[126]);
+  fprintf(outfile, "EDID contains %d extensions\n", edid_data[EDID_EXT_FLAG]);
 
-  edid_ext = edid_data + 128;
+  edid_ext = edid_data + EDID_SIZE;
 
-  if ((ext >= 1) && (edid_data[126] >= 1)) {
-    if ((edid_ext[0] == 0x02) && (edid_ext[1] == 0x03)) {
+  if ((ext >= 1) && (edid_data[EDID_EXT_FLAG] >= 1)) {
+    if ((edid_ext[EEXT_TAG] == 0x02) && (edid_ext[EEXT_REV] == 0x03)) {
       show_cea_timing(outfile, edid_ext);
-    } else
-      fprintf(outfile, "EDID extension tag 0x%02x rev 0x%02x not known\n",
-              edid_data[128], edid_data[129]);
+    } else {
+      char *tagtype;
+      switch(edid_ext[EEXT_TAG]) {
+      case 0x01:
+        tagtype = "LCD Timings";
+        break;
+      case 0x02:
+        tagtype = "CEA";
+        break;
+      case 0x20:
+        tagtype = "EDID 2.0";
+        break;
+      case 0x30:
+        tagtype = "Color Information";
+        break;
+      case 0x40:
+        tagtype = "DVI Feature";
+        break;
+      case 0x50:
+        tagtype = "Touch Screen Map";
+        break;
+      case 0xF0:
+        tagtype = "Block Map";
+        break;
+      case 0xFF:
+        tagtype = "Manufacturer";
+        break;
+      default:
+        tagtype = "Unknown";
+      }
+      fprintf(outfile, "EDID %s extension tag 0x%02x rev 0x%02x skipped\n",
+              tagtype, edid_ext[EEXT_TAG], edid_ext[EEXT_REV]);
+    }
   }
 }
 
@@ -590,6 +673,7 @@ void show_edid(FILE *outfile, unsigned char *edid_data, int ext)
 /* Pixel counts normally round to 8 */
 #define CLOSE_ENOUGH(a, b) (abs((a)-(b)) < 16)
 
+/* These match order of defines ASPECT_x_y in edid_utils.h */
 char *aspect_to_str[]={"16:10","4:3","5:4","16:9"};
 
 int find_aspect(int h, int v)
@@ -608,8 +692,8 @@ int find_aspect(int h, int v)
 
 int find_aspect_fromisize(unsigned char *edid_data)
 {
-  int hsiz = edid_data[21];
-  int vsiz = edid_data[22];
+  int hsiz = edid_data[EDID_MAX_HSIZE];
+  int vsiz = edid_data[EDID_MAX_VSIZE];
   int res;
 
   /* Zero size for projector */
@@ -626,4 +710,3 @@ int find_aspect_fromisize(unsigned char *edid_data)
   else
     return res;
 }
-
