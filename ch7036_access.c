@@ -973,9 +973,10 @@ int ch_change_reg(struct reg_ch7036* seq, int page, int reg,
 
 void ch_reset_datapath (int dev)
 {
+  int res = ch_read_reg(dev, CH7036_RESET);
   /* Reset the datapath then remove reset */
-  ch_write_reg(dev, CH7036_RESET, 0x2e);
-  ch_write_reg(dev, CH7036_RESET, 0x2f);
+  ch_write_reg(dev, CH7036_RESET, res & ~0x1);
+  ch_write_reg(dev, CH7036_RESET, res | 0x1);
 }
 
 /* Email from Chrontel 5/20 to reset to defaults */
@@ -983,9 +984,10 @@ void ch_reset_datapath (int dev)
 void ch_reset_todefault (int dev)
 {
   int i;
+  int res = ch_read_reg(dev, CH7036_RESET);
   /* Reset registers then remove reset */
-  ch_write_reg(dev, CH7036_RESET, 0x2d);
-  ch_write_reg(dev, CH7036_RESET, 0x2f);
+  ch_write_reg(dev, CH7036_RESET, res & ~0x2);
+  ch_write_reg(dev, CH7036_RESET, res | 0x2);
 
   for(i=0; i < 256; i++)
     changed[0][i] = changed[1][i] = changed[2][i] =
@@ -1116,6 +1118,23 @@ void ch_calculate_incs(int dev)
   ch_write_reg(dev, CH7036_HDINCC3, hdinc      & 0xFF);
 }
 
+int ch_suspend_firmware(int dev, int verbose)
+{
+  int res = ch_read_reg(dev, CH7036_RESET);
+  res &= ~0x4;
+  if (verbose) printf("Suspend CH7036 firmware, set RESET to 0x%x\n", res);
+  ch_write_reg(dev, CH7036_RESET, res);
+  return res;
+}
+
+int ch_release_firmware(int dev, int verbose)
+{
+  int res = ch_read_reg(dev, CH7036_RESET);
+  res |= 0x4;
+  if (verbose) printf("Release CH7036 firmware, set RESET to 0x%x\n", res);
+  ch_write_reg(dev, CH7036_RESET, res);
+  return res;
+}
 
 
 /* Load Firmware */

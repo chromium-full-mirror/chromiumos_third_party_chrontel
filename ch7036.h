@@ -79,6 +79,12 @@
 #define YIELD_CHRONTEL_TURN_OFF_SECS 5
 #define YIELD_FIRMWARE_START_SECS 1
 
+/* Attempts to read version before concluding firmware load failed */
+#define MCU_ATTEMPTS_AFTER_FWLOAD 5
+
+/* How often to poll firmware liveness in GPIO HPD detection loop */
+#define CHECK_FW_INTERVAL_IN_GPIOLOOPS 9
+
 /* Maximum horizontal resolution to allow on HDMI port */
 #define CH_MAX_HRES 1920
 
@@ -99,6 +105,8 @@ void ch_monitor_off(int dev);
 void ch_monitor_off_keep_ddc(int dev);
 int ch_hdmi_is_on(int dev);
 void ch_calculate_incs(int dev);
+int ch_suspend_firmware(int dev, int verbose);
+int ch_release_firmware(int dev, int verbose);
 int ch_load_firmware(int dev, char* fname);
 int ch_mcu_version(int dev, int newFirmware, int verbose);
 int ch_hdmi_detected(int dev);
