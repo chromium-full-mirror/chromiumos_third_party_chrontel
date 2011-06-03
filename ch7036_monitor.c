@@ -36,6 +36,16 @@
 #define DEF_FW "/lib/firmware/chrontel/fw7036.bin"
 #define EDID_LOG "/var/log/hdmi_edid.log"
 
+/* Test flags used for experiments */
+int test_flags = 0;
+
+#define CHTEST_FORCEDETECT 0x01
+/* These are defined for convenience during development */
+/* to allow experiments to be patched in and tested across monitors */
+/* They should not be used in final code pushed to mainline tree */
+#define CHTEST_EXPERIMENT1 0x100
+#define CHTEST_EXPERIMENT2 0x200
+
 /* Width fixups for supported displays */
 int width_fix_1366x768[4] = {1366, 1024, 960, 1366};
 int width_fix_1280x800[4] = {1280, 1066, 1000, 1280};
@@ -295,7 +305,7 @@ void set_x_size(Display *dpy, Window root, int w, int h,
 void usage(char *prog)
 {
   fprintf(stderr,
-          "Usage: %s {-v|-p][-d<i2c device>|-n][-f<firmware>][-Ew,a]\n", prog);
+          "Usage: %s [options]\n", prog);
   fprintf(stderr, "-d<filename>: set i2c device to use (default %s)\n",
           DEF_DEV);
   fprintf(stderr, "-g<filename>: enable and set gpio device for HDMI detect\n");
@@ -305,6 +315,13 @@ void usage(char *prog)
   fprintf(stderr, "-p: Probe: check I2C access and Chrontel ID and exit.\n");
   fprintf(stderr, "-W<width>,<aspect>: Force aspet and max width\n");
   fprintf(stderr, "-E<number>: Force use of test EDID number\n");
+  fprintf(stderr, "-T<number>: Enable test flags based on number\n");
+  fprintf(stderr, "            0x%03x - Force detection of monitor\n",
+          CHTEST_FORCEDETECT);
+  fprintf(stderr, "            0x%03x - Use experiment 1 (if there is one)\n",
+          CHTEST_EXPERIMENT1);
+  fprintf(stderr, "            0x%03x - Use experiment 2 (if there is one)\n",
+          CHTEST_EXPERIMENT2);
   fprintf(stderr, "-m: list known modes\n");
   fprintf(stderr, "-M<number>: Force use of mode number\n");
   fprintf(stderr, "-x: Fixup X server width\n");
@@ -681,6 +698,13 @@ int main(int argc, char *argv[])
       }
       break;
 
+    case 'T':
+      test_flags = strtol(argv[arg] + 2, NULL, 0);
+      if (test_flags)
+        fprintf(stderr, "%s: WARNING enabling tests with flags 0x%x\n",
+                argv[0], test_flags);
+      break;
+
     case 'W':
       {
         char *endn;
@@ -869,17 +893,20 @@ int main(int argc, char *argv[])
 
     if (gpiodev) {
       int chkfw = 0;
-      /* Don't pass verbose flag here as 2nd arg, it is too verbose */
-      while (!needReload && (ch_hdmi_gpio_detected(gpiodev, 0) == 0)) {
-        if (++chkfw > 9) {
-          chkfw = 0;
-          if (ch_mcu_version(i2cdev, 0, 0) < 0) {
-            if (verbose) printf("Lost Chrontel firmware waiting for gpio\n");
-            needReload = 1;
-            continue;
+      /* Force detect acts as if HPD is always set, so no need for loop */
+      if (!(test_flags & CHTEST_FORCEDETECT)) {
+        /* Don't pass verbose flag here as 2nd arg, it is too verbose */
+        while (!needReload && (ch_hdmi_gpio_detected(gpiodev, 0) == 0)) {
+          if (++chkfw > 9) {
+            chkfw = 0;
+            if (ch_mcu_version(i2cdev, 0, 0) < 0) {
+              if (verbose) printf("Lost Chrontel firmware waiting for gpio\n");
+              needReload = 1;
+              continue;
+            }
           }
+          sleep(YIELD_GPIO_DETECT_SECS);
         }
-        sleep(YIELD_GPIO_DETECT_SECS);
       }
       /* Need to enable DDC to allow EDID read */
       ch_write_reg(i2cdev, CH7036_MAGIC2_0E, 0x13); // MAGIC
@@ -888,7 +915,8 @@ int main(int argc, char *argv[])
         needReload = 1;
       }
     } else
-      while (!needReload && !ch_hdmi_detected(i2cdev)) {
+      while (!needReload &&
+             !(test_flags & CHTEST_FORCEDETECT) && !ch_hdmi_detected(i2cdev)) {
         sleep(YIELD_CHRONTEL_DETECT_SECS);
         /* Check the Chrontel firmware is still alive */
         /* Originally only did this when DPMS said screen came on */
@@ -1124,7 +1152,8 @@ int main(int argc, char *argv[])
       }
       /* If we need a reload, don't wait! -- moved sleep to start for fw 1.2 */
       //      if (!needReload) sleep(5);
-    } while (!needReload && ch_hdmi_detected(i2cdev));
+    } while (!needReload &&
+             ((test_flags & CHTEST_FORCEDETECT) || ch_hdmi_detected(i2cdev)));
     if (verbose) printf("Exit displaying needReload = %d, hdmiOn = %d\n",
                         needReload, hdmiOn);
     if (new_width != xmode->width) {
