@@ -40,11 +40,20 @@
 int test_flags = 0;
 
 #define CHTEST_FORCEDETECT 0x01
+
 /* These are defined for convenience during development */
 /* to allow experiments to be patched in and tested across monitors */
 /* They should not be used in final code pushed to mainline tree */
 #define CHTEST_EXPERIMENT1 0x100
 #define CHTEST_EXPERIMENT2 0x200
+
+
+/* Internal error codes */
+#define ERR_FAILED -1
+#define ERR_NEED_RELOAD -2
+#define ERR_NEWFW_RETRY -3
+#define ERR_READ_FAILED -4
+#define ERR_EXTRD_FAILED -5
 
 /* Width fixups for supported displays */
 int width_fix_1366x768[4] = {1366, 1024, 960, 1366};
@@ -339,7 +348,7 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
   int interlace = 0;
   int i;
   int n_dtds = 4;
-  int has_hdmi = edid_has_hdmi_info(data, data[126] ? 1:0);
+  int has_hdmi = edid_has_hdmi_info(data, data[EDID_EXT_FLAG] ? 1:0);
 
   /* In HDMI case know start of extra DTDs and max available space */
   /* This gives a max, some could be in the 00 padding area */
@@ -579,6 +588,114 @@ void show_ch_timing(struct timing_ch7036* timing, char* what)
   printf("    0x%04x,\n", timing->scale);
 }
 
+int reloadfw(int i2cdev, char *fwfile, char *progname,
+               int gpiodev, int need_reset, int verbose)
+{
+  int mcutry = 0;
+  /* This also intializes the changed vector */
+  if (need_reset) ch_reset_todefault(i2cdev);
+
+  if (ch_load_firmware(i2cdev, fwfile) < 0) {
+    fprintf(stderr, "%s: Could not load firmware %s\n", progname, fwfile);
+    return ERR_FAILED;
+  }
+  do {
+    if (ch_mcu_version(i2cdev, 1, verbose) > 0) break;
+    sleep(YIELD_FIRMWARE_START_SECS);
+    mcutry++;
+    if (mcutry >= MCU_ATTEMPTS_AFTER_FWLOAD) return ERR_NEED_RELOAD;
+  } while (mcutry < MCU_ATTEMPTS_AFTER_FWLOAD);
+  /* HDMI detection seems a bit bouncy after firmware load */
+  /* If there was a sleep added here it would delay detection */
+  /* at startup time, so don't do that */
+  /* Using the longer ch_mcu_version timeout makes it less liekly */
+  /* Turning the monitor on here seems to make the problem go away */
+  /* but it causes LCD flicker so avoid when using gpio detection */
+  if (gpiodev) {
+    if (verbose) printf("GPIO detection, don't bounce the display\n");
+  } else {
+    /* Don't use verbose: hdmi setting is don't care for workaround */
+    ch_monitor_on(i2cdev, 0, 0);
+    ch_monitor_off_keep_ddc(i2cdev);
+  }
+  return 0;
+}
+
+int wait_monitor_attach(int i2cdev, int gpiodev, int verbose)
+{
+  int needReload = 0;
+
+  if (gpiodev) {
+    int chkfw = 0;
+    /* Force detect acts as if HPD is always set, so no need for loop */
+    if (!(test_flags & CHTEST_FORCEDETECT)) {
+      /* Don't pass verbose flag here as 2nd arg, it is too verbose */
+      while (!needReload && (ch_hdmi_gpio_detected(gpiodev, 0) == 0)) {
+        if (++chkfw > CHECK_FW_INTERVAL_IN_GPIOLOOPS) {
+          chkfw = 0;
+          if (ch_mcu_version(i2cdev, 0, 0) < 0) {
+            if (verbose) printf("Lost Chrontel firmware waiting for gpio\n");
+            needReload = 1;
+            continue;
+          }
+        }
+        sleep(YIELD_GPIO_DETECT_SECS);
+      }
+    }
+    /* Need to enable DDC to allow EDID read */
+    ch_write_reg(i2cdev, CH7036_MAGIC2_0E, 0x13); // MAGIC
+    if (!needReload && (ch_mcu_version(i2cdev, 0, 0) < 0)) {
+      if (verbose) printf("GPIO detected but lost the Chrontel firmware\n");
+      needReload = 1;
+    }
+  } else
+    while (!needReload &&
+           !(test_flags & CHTEST_FORCEDETECT) && !ch_hdmi_detected(i2cdev)) {
+      sleep(YIELD_CHRONTEL_DETECT_SECS);
+      /* Check the Chrontel firmware is still alive */
+      /* Originally only did this when DPMS said screen came on */
+      /* But that misses the case where lid close takes system to s3 */
+      if (ch_mcu_version(i2cdev, 0, 0) < 0) {
+        if (verbose) printf("Lost the Chrontel firmware\n");
+        needReload = 1;
+      }
+    }
+  return needReload;
+}
+
+int get_edid(int i2cdev, unsigned char *edid, int newFirmware, int verbose)
+{
+  int err = ch_get_edid(i2cdev, 0, &edid[0]);
+
+  if (err < 0) {
+    if (ch_mcu_version(i2cdev, 0, verbose) < 0) {
+      if (verbose) printf("EDID error because Chrontel firmware lost\n");
+      return ERR_NEED_RELOAD;
+    }
+    /* EDID timed out, but things seem alive */
+    if (newFirmware) {
+      if (verbose)
+        printf("Ignore HPD because EDID failed just after firmware load\n");
+      sleep(YIELD_CHRONTEL_DETECT_SECS);
+      /* Loop back to recheck HPD after sleep */
+      return ERR_NEWFW_RETRY;
+    }
+    return ERR_READ_FAILED;
+  } else if (!edid_valid(&edid[0])) {
+    if (newFirmware) {
+      if (verbose)
+        printf("Ignore HPD since EDID not valid just after firmware load\n");
+      sleep(YIELD_CHRONTEL_DETECT_SECS);
+      /* The EDID was read, so next time it is not new fw */
+      /* Loop back to recheck HPD after sleep */
+      return ERR_NEWFW_RETRY;
+    }
+    /* Returns ok because EDID was read. It won't be useful... */
+    return 0;
+  } else if (edid[EDID_EXT_FLAG] > 0)
+    if (ch_get_edid(i2cdev, 1, edid+EDID_SIZE) < 0) return ERR_EXTRD_FAILED;
+  return 0;
+}
 
 
 int main(int argc, char *argv[])
@@ -603,8 +720,12 @@ int main(int argc, char *argv[])
   int verbose = 0;
   int *width_fix;
   unsigned char edid[256];
+  unsigned char newedid[256];
+  int use_new_edid = 0;
   int aspect;
   int hdmiOn;
+  int mondetect;
+  int expectres;
   int needReload = 1;   /* Force firmware to load on the first loop */
   int newFirmware = 1;
   int force_mode = -1;
@@ -616,6 +737,8 @@ int main(int argc, char *argv[])
   struct timing_ch7036 lcd_timing;
   struct timing_ch7036 prefer;
   struct timing_ch7036 *mon_timing;
+  /* First entry in known modes table is 640x480 @ 60Hz */
+  struct timing_ch7036 *mode_640x480x60 = known_modes;
 
   /* Set stdout for easy logs during debug */
   setlinebuf(stdout);
@@ -853,148 +976,80 @@ int main(int argc, char *argv[])
     char *why_res = "nothing";
     char *why_aud;
     int enable_audio = 0;
+    int output_hdmi = 0;
     int ares;
     if ((edidlog = fopen(EDID_LOG, "w")) != NULL) {
       fprintf(edidlog, "No HDMI device detected\n");
       fclose(edidlog);
     }
-    if (needReload) {
-      int mcutry = 0;
-      /* This also intializes the changed vector */
-      ch_reset_todefault(i2cdev);
 
-      err = ch_load_firmware(i2cdev, fwfile);
-      if (err < 0) {
-        fprintf(stderr, "%s: Could not load firmware %s\n", argv[0], fwfile);
-        exit(1);
-      }
-      newFirmware = 1;
-      needReload = 0;
-      do {
-        if (ch_mcu_version(i2cdev, 1, verbose) > 0) break;
-        sleep(YIELD_FIRMWARE_START_SECS);
-        mcutry++;
-        if (mcutry >= 5) needReload = 1;
-      } while (mcutry < 5);
-      /* HDMI detection seems a bit bouncy after firmware load */
-      /* If there was a sleep added here it would delay detection */
-      /* at startup time, so don't do that */
-      /* Using the longer ch_mcu_version timeout makes it less liekly */
-      /* Turning the monitor on here seems to make the problem go away */
-      /* FIXME: but it causes LCD flicker */
-      if (gpiodev) {
-        if (verbose) printf("GPIO detection, don't bounce the display\n");
-      } else {
-        /* Don't use verbose: hdim setting is don'tcare for workaround */
-        ch_monitor_on(i2cdev, 0, 0);
-        ch_monitor_off_keep_ddc(i2cdev);
-      }
-    }
+    if (needReload)
+      needReload = reloadfw(i2cdev, fwfile, argv[0], gpiodev, 1, verbose);
+    if (needReload == ERR_FAILED) exit(1);
+    if (needReload) continue;
 
-    if (gpiodev) {
-      int chkfw = 0;
-      /* Force detect acts as if HPD is always set, so no need for loop */
-      if (!(test_flags & CHTEST_FORCEDETECT)) {
-        /* Don't pass verbose flag here as 2nd arg, it is too verbose */
-        while (!needReload && (ch_hdmi_gpio_detected(gpiodev, 0) == 0)) {
-          if (++chkfw > 9) {
-            chkfw = 0;
-            if (ch_mcu_version(i2cdev, 0, 0) < 0) {
-              if (verbose) printf("Lost Chrontel firmware waiting for gpio\n");
-              needReload = 1;
-              continue;
-            }
-          }
-          sleep(YIELD_GPIO_DETECT_SECS);
-        }
-      }
-      /* Need to enable DDC to allow EDID read */
-      ch_write_reg(i2cdev, CH7036_MAGIC2_0E, 0x13); // MAGIC
-      if (!needReload && (ch_mcu_version(i2cdev, 0, 0) < 0)) {
-        if (verbose) printf("GPIO detected but lost the Chrontel firmware\n");
-        needReload = 1;
-      }
-    } else
-      while (!needReload &&
-             !(test_flags & CHTEST_FORCEDETECT) && !ch_hdmi_detected(i2cdev)) {
-        sleep(YIELD_CHRONTEL_DETECT_SECS);
-        /* Check the Chrontel firmware is still alive */
-        /* Originally only did this when DPMS said screen came on */
-        /* But that misses the case where lid close takes system to s3 */
-        if (ch_mcu_version(i2cdev, 0, 0) < 0) {
-          if (verbose) printf("Lost the Chrontel firmware\n");
-          needReload = 1;
-        }
-      }
+    needReload = wait_monitor_attach(i2cdev, gpiodev, verbose);
     /* Recycle the outer while loop to hit the fw reload code */
     if (needReload) continue;
 
     if (force_edid) {
       /* Should not fail because force_edid was checked above */
       err = get_test_edid(force_edid, &edid[0]);
-    } else
-      err = ch_get_edid(i2cdev, 0, &edid[0]);
+    } else if (use_new_edid) {
+      int i;
+      for(i=0; i < (EDID_SIZE + EEXT_SIZE); i++) edid[i] = newedid[i];
+      err = 0;
+      use_new_edid = 0;
+    } else {
+      err = get_edid(i2cdev, &edid[0], newFirmware, verbose);
+      newFirmware = 0;
+      /* If the error happened with new firmware we try again */
+      if (err == ERR_NEWFW_RETRY) continue;
+    }
 
     mon_timing = NULL;
     enable_audio = 0;
     why_aud = "LPCM Audio support not found in EDID";
-    if (err < 0) {
-      if (ch_mcu_version(i2cdev, 0, verbose) < 0) {
-        if (verbose) printf("EDID error because Chrontel firmware lost\n");
-        needReload = 1;
-        continue;
+
+    if (force_mode >= 0) {
+      /* Mode forced on command line: ignore EDID */
+      mon_timing = &known_modes[force_mode];
+      aspect = find_aspect(mon_timing->ha, mon_timing->va);
+      // Select audio if it is an HDMI mode
+      if (mon_timing->pixel_fmt & PIXEL_HDMI_ENCODE_DVI) {
+        enable_audio = 0;
+        why_res = "DVI mode forced on command line";
+        why_aud = "audio forced off";
+      } else {
+        enable_audio = 1;
+        why_res = "HDMI mode forced on command line";
+        why_aud = "audio forced on";
       }
-      /* EDID timed out, but things seem alive */
-      if (newFirmware) {
-        if (verbose)
-          printf("Ignore HPD because EDID failed just after firmware load\n");
-        sleep(YIELD_CHRONTEL_DETECT_SECS);
-        /* Loop back to recheck HPD after sleep */
-        continue;
-      }
-      fprintf(stderr, "%s: Get EDID Failed (initial block) using 640x480@60\n",
-              argv[0]);
+      if (verbose) printf("Force mode %d with aspect %d\n",
+                          force_mode, aspect);
+    } else if (err) {
+      /* Error reading the EDID */
+      fprintf(stderr, "%s: Get EDID Failed (%s block) using 640x480@60\n",
+              argv[0], (err == ERR_READ_FAILED) ? "initial" : "extension");
       why_res = "default resolution because EDID could not be read";
+      mon_timing = mode_640x480x60;
+      aspect = ASPECT_4_3;
     } else if (!edid_valid(&edid[0])) {
-      if (newFirmware) {
-        if (verbose)
-          printf("Ignore HPD since EDID not valid just after firmware load\n");
-        sleep(YIELD_CHRONTEL_DETECT_SECS);
-        /* The EDID was read, so next time it is not new fw */
-        newFirmware = 0;
-        /* Loop back to recheck HPD after sleep */
-        continue;
-      }
+      /* EDID is not valid */
       fprintf(stderr, "%s: EDID is not valid, using 640x480@60\n",
               argv[0]);
       why_res = "default resolution because EDID is not valid";
+      mon_timing = mode_640x480x60;
+      aspect = ASPECT_4_3;
     } else {
-      /* Force edid already filled in 256 bytes */
-      if ((edid[126] > 0) && !force_edid)
-        ch_get_edid(i2cdev, 1, &edid[128]);
-
+      /* Got an EDID, use it to figure out the timing */
       if (verbose) {
         show_edid_data(stdout, &edid[0], 128, 0);
-        if (edid[126] > 0)
+        if (edid[EDID_EXT_FLAG] > 0)
           show_edid_data(stdout, &edid[128], 128, 128);
-        show_edid(stdout, &edid[0], (edid[126] > 0) ? 1:0);
+        show_edid(stdout, &edid[0], (edid[EDID_EXT_FLAG] > 0) ? 1:0);
       }
-      if (force_mode >= 0) {
-        mon_timing = &known_modes[force_mode];
-        aspect = find_aspect(mon_timing->ha, mon_timing->va);
-        // Select audio if it is an HDMI mode
-        if (mon_timing->pixel_fmt & PIXEL_HDMI_ENCODE_DVI) {
-          enable_audio = 0;
-          why_res = "DVI mode forced on command line";
-          why_aud = "audio forced off";
-        } else {
-          enable_audio = 1;
-          why_res = "HDMI mode forced on command line";
-          why_aud = "audio forced on";
-        }
-        if (verbose) printf("Force mode %d with aspect %d\n",
-                            force_mode, aspect);
-      } else if ((forcen_x == 0) &&
+      if ((forcen_x == 0) &&
           get_native(&edid[0], &prefer, &aspect, forcen_a, verbose)){
         mon_timing = &prefer;
         why_res = "preferred/native resolution requested in EDID";
@@ -1004,12 +1059,12 @@ int main(int argc, char *argv[])
         /* even if they set the 'underscan' flag that says they should      */
         /* If the EDID has an HDMI extension then assume this badness       */
         /* unless it is not 16:9 because most monitors are well behaved     */
-        if (edid_has_hdmi_info(&edid[0], (edid[126] > 0) ? 1:0)) {
+        if (edid_has_hdmi_info(&edid[0], (edid[EDID_EXT_FLAG] > 0) ? 1:0)) {
           if (aspect == ASPECT_16_9) {
             prefer.scale = MK_SCALE(6, 5);
             why_res = "preferred resolution in EDID scaled for overscan";
           }
-          if (edid_lpcm_support(&edid[0], (edid[126] > 0) ? 1:0)) {
+          if (edid_lpcm_support(&edid[0], (edid[EDID_EXT_FLAG] > 0) ? 1:0)) {
             enable_audio = 1;
             why_aud = "EDID indicates LPCM audio support";
           }
@@ -1021,15 +1076,14 @@ int main(int argc, char *argv[])
       }
     }
 
-    newFirmware = 0;
-
+    /* Could loop here 3 times: preferred, standard and default */
     do {
+      /* Catch error cases either from the code above or second pass of loop */
       if (mon_timing == NULL) {
         if (verbose)
           printf("%s: Fall back to default output 640x480@60\n", argv[0]);
         why_res = "default resolution because nothing better was identified";
-        /* First in table is default 640x480@60 */
-        mon_timing = known_modes;
+        mon_timing = mode_640x480x60;
         aspect = ASPECT_4_3;
       }
       if (verbose) {
@@ -1077,7 +1131,7 @@ int main(int argc, char *argv[])
 
     if (verbose) printf("Restore defaults:\n");
     ch_restore_notin_seq(i2cdev, reglist, verbose);
-    if (verbose) printf("Program registers:\n");
+
     if (mon_timing->scale != MK_SCALE(0,0)) {
       int res = ch_change_reg(reglist, CH7036_AVIINFO3, 0xFC, 0x1);
       if (verbose) printf("Change AVIINFO3 from 0x%2x to 0x%2x\n",
@@ -1095,12 +1149,13 @@ int main(int argc, char *argv[])
     if (verbose) printf("Removed CH7036_RESET write of 0x%2x\n", ares);
     ares = ch_remove_last_reg(reglist, CH7036_RESET);
     if (verbose) printf("Removed CH7036_RESET write of 0x%2x\n", ares);
-
+    /* Select HDMI output if mode is not DVI or audio is enabled */
+    output_hdmi = (((mon_timing->pixel_fmt & PIXEL_HDMI_ENCODE_DVI) == 0) ||
+                   enable_audio);
+    if (verbose) printf("Program registers:\n");
     ch_write_reg_sequence(i2cdev, reglist);
     ch_calculate_incs(i2cdev);
-    ch_monitor_on(i2cdev,
-                  (((mon_timing->pixel_fmt & PIXEL_HDMI_ENCODE_DVI) == 0) ||
-                   enable_audio), verbose);
+    ch_monitor_on(i2cdev, output_hdmi, verbose);
     hdmiOn = 1;
 
     if (new_width != xmode->width) {
@@ -1119,22 +1174,57 @@ int main(int argc, char *argv[])
               enable_audio ? "Enable" : "No", why_aud);
       fprintf(edidlog, "EDID Data read from HDMI:\n");
       show_edid_data(edidlog, &edid[0], 128, 0);
-      if (edid[126] > 0)
+      if (edid[EDID_EXT_FLAG] > 0)
         show_edid_data(edidlog, &edid[128], 128, 128);
-      show_edid(edidlog, &edid[0], (edid[126] > 0) ? 1:0);
+      show_edid(edidlog, &edid[0], (edid[EDID_EXT_FLAG] > 0) ? 1:0);
       fclose(edidlog);
     }
+    /* Suspend the firmware because it has been seen to cause screen flicker */
+    /* Can't do this if relying on firmware to report disconnect event */
+    if (gpiodev)
+      expectres = ch_suspend_firmware(i2cdev, verbose);
+    else
+      expectres = 0x2f;
+
+    mondetect = 1;
     do {
       CARD16 state;
       BOOL onoff;
-      /* moving the sleep here seems less likely to loose fw 1.2 */
-      sleep(YIELD_CHRONTEL_DETECT_SECS);
-      /* Check the Chrontel firmware is still alive */
-      /* Moved to outer loop because lid switch yanks power and kills fw */
-      /* without any chance for powerd to do it nicely */
-      if (ch_mcu_version(i2cdev, 0, 0) < 0) {
-        if (verbose) printf("Lost the Chrontel firmware\n");
-        needReload = 1;
+      int resreg;
+
+      /* Check for unexpected change in Chrontel */
+      /* most likely happens because the machine suspended */
+      if ((resreg = ch_read_reg(i2cdev, CH7036_RESET)) != expectres) {
+        int i;
+        if (verbose)
+          printf("Unexpected change in CH7036, RESET 0x%x expecting 0x%x\n",
+                 resreg, expectres);
+        /* Reload registers assuming part got to default state */
+        ch_write_reg_sequence(i2cdev, reglist);
+        ch_calculate_incs(i2cdev);
+        ch_monitor_on(i2cdev, output_hdmi, verbose);
+        hdmiOn = 1;
+        /* Machine was suspended, so the firmware was lost */
+        needReload = reloadfw(i2cdev, fwfile, argv[0], gpiodev, 0, verbose);
+        if (needReload) continue;
+        /* Need to enable DDC to allow EDID read */
+        if (gpiodev) ch_write_reg(i2cdev, CH7036_MAGIC2_0E, 0x13); // MAGIC
+        err = get_edid(i2cdev, &newedid[0], 1, verbose);
+        if (err) {
+          if (verbose) printf("Could not get new EDID\n");
+          needReload = 1;
+          continue;
+        }
+        for(i=0; i<EDID_SIZE; i++) if (edid[i] != newedid[i]) break;
+        if (i < EDID_SIZE) {
+          if (verbose) printf("New EDID is different, monitor changed!\n");
+          /* Clear hdmiOn to prevent the display being disabled below */
+          hdmiOn = 0;
+          use_new_edid = 1;
+          break;
+        }
+        if (verbose) printf("New EDID is the same, using existing settings\n");
+        if (gpiodev) ch_suspend_firmware(i2cdev, verbose);
       } else {
         DPMSInfo(dpy, &state, &onoff);
         if ((state != DPMSModeOn) && hdmiOn) {
@@ -1143,19 +1233,25 @@ int main(int argc, char *argv[])
           hdmiOn = 0;
         } else if ((state == DPMSModeOn) && !hdmiOn) {
           if (verbose) printf("DPMS is on, turn on hdmi\n");
-          ch_monitor_on(i2cdev,
-                   (((mon_timing->pixel_fmt & PIXEL_HDMI_ENCODE_DVI) == 0) ||
-                   enable_audio), verbose);
+          ch_monitor_on(i2cdev, output_hdmi, verbose);
           if (verbose) printf("Monitor back on with DPMS On\n");
           hdmiOn = 1;
         }
       }
-      /* If we need a reload, don't wait! -- moved sleep to start for fw 1.2 */
-      //      if (!needReload) sleep(5);
-    } while (!needReload &&
-             ((test_flags & CHTEST_FORCEDETECT) || ch_hdmi_detected(i2cdev)));
+      sleep(gpiodev ? YIELD_GPIO_DETECT_SECS : YIELD_CHRONTEL_DETECT_SECS);
+      if (test_flags & CHTEST_FORCEDETECT)
+        mondetect = 1;
+      else if (gpiodev)
+        mondetect = ch_hdmi_gpio_detected(gpiodev, 0);
+      else
+        mondetect = ch_hdmi_detected(i2cdev);
+    } while (!needReload && mondetect);
     if (verbose) printf("Exit displaying needReload = %d, hdmiOn = %d\n",
                         needReload, hdmiOn);
+
+    if (!needReload && gpiodev && hdmiOn)
+      ch_release_firmware(i2cdev, verbose);
+
     if (new_width != xmode->width) {
       if (verbose) printf("Change X active to %dx%d\n",
                           xmode->width, xmode->height);

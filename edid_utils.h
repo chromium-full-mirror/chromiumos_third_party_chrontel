@@ -12,6 +12,11 @@
 #define ASPECT_16_9  3
 #define N_ASPECTS    4
 
+#define EDID_EXT_FLAG 0x7E
+#define EDID_SIZE 0x80
+
+#define EEXT_SIZE 0x80
+
 /* Number of test EDID arrays available to get/show_test_edid */
 #define N_TEST_EDIDS 5
 
