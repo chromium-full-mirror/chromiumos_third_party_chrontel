@@ -48,6 +48,13 @@
 #define EEXT_REV 1
 #define EEXT_SIZE 0x80
 
+/* 2 byte standard timing structure */
+#define STDTIME_HBASE 248
+#define STDTIME_HMULT 8
+#define STDTIME_VASPECT_SHIFT 6
+#define STDTIME_VREFMINUS60_MASK 0x3f
+#define STDTIME_SIZE 2
+
 /* 18 byte DTD structure */
 #define DTD_PCLK_LO 0
 #define DTD_PCLK_HI 1

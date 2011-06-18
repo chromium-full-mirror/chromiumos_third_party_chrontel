@@ -347,41 +347,43 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
   int seen_pref = 0;
   int interlace = 0;
   int i;
-  int n_dtds = 4;
+  int n_dtds = EDID_N_DTDS;
   int has_hdmi = edid_has_hdmi_info(data, data[EDID_EXT_FLAG] ? 1:0);
 
   /* In HDMI case know start of extra DTDs and max available space */
   /* This gives a max, some could be in the 00 padding area */
   if (has_hdmi)
-    n_dtds += (125 - data[128+2])/18;
+    n_dtds += (CEA_LAST_PAD - data[EDID_SIZE+CEA_DTD_OFFSET])/DTD_SIZE;
 
   for(i = 0; i < n_dtds; i++) {
     int pelclk;
     unsigned char* base;
 
-    if (i < 4)
-      base = data + 54 + 18*i;
+    /* First DTDs are in the main EDID, any more are in the extension */
+    if (i < EDID_N_DTDS)
+      base = data + EDID_DTD_BASE + DTD_SIZE*i;
     else
-      base = data + 128 + data[130] + 18*(i-4);
+      base = (data + EDID_SIZE + data[EDID_SIZE+CEA_DTD_OFFSET] +
+              DTD_SIZE*(i-EDID_N_DTDS));
 
     /* In extension block this will be 0 when we hit padding */
     /* in main block 0 indicates something other than DTD    */
-    pelclk = base[0] + (base[1]<<8);
+    pelclk = base[DTD_PCLK_LO] + (base[DTD_PCLK_HI]<<8);
 
     if (pelclk != 0) {
-      int hres = base[2] + ((base[4] & 0xf0)<<4);
-      int hbl = base[3] + ((base[4] & 0x0f)<<8);
-      int vres = base[5] + ((base[7] & 0xf0)<<4);
-      int vbl = base[6] + ((base[7] & 0x0f)<<8);
-      int hso = base[8] + ((base[11] & 0xc0)<<2);
-      int hsw = base[9] + ((base[11] & 0x30)<<4);
-      int vso = (base[10] >> 4) + ((base[11] & 0x0c)<<2);
-      int vsw = (base[10] & 0xf) + ((base[11] & 0x03)<<4);
-      int hsiz = base[12] + ((base[14] & 0xf0)<<4);
-      int vsiz = base[13] + ((base[14] & 0x0f)<<8);
-      //int hbdr = base[15];
-      //int vbdr = base[16];
-      int mdflg = base[17];
+      int hres = base[DTD_HA_LO] + ((base[DTD_HABL_HI] & 0xf0)<<4);
+      int hbl = base[DTD_HBL_LO] + ((base[DTD_HABL_HI] & 0x0f)<<8);
+      int vres = base[DTD_VA_LO] + ((base[DTD_VABL_HI] & 0xf0)<<4);
+      int vbl = base[DTD_VBL_LO] + ((base[DTD_VABL_HI] & 0x0f)<<8);
+      int hso = base[DTD_HSO_LO] + ((base[DTD_HVSX_HI] & 0xc0)<<2);
+      int hsw = base[DTD_HSW_LO] + ((base[DTD_HVSX_HI] & 0x30)<<4);
+      int vso = (base[DTD_VSX_LO] >> 4) + ((base[DTD_HVSX_HI] & 0x0c)<<2);
+      int vsw = (base[DTD_VSX_LO] & 0xf) + ((base[DTD_HVSX_HI] & 0x03)<<4);
+      int hsiz = base[DTD_HSIZE_LO] + ((base[DTD_HVSIZE_HI] & 0xf0)<<4);
+      int vsiz = base[DTD_VSIZE_LO] + ((base[DTD_HVSIZE_HI] & 0x0f)<<8);
+      //int hbdr = base[DTD_HBORDER];
+      //int vbdr = base[DTD_VBORDER];
+      int mdflg = base[DTD_FLAGS];
 
       //int refr = (pelclk * 10000)/((hres+hbl)*(vres+vbl));
       //int refm = (pelclk * 10000)%((hres+hbl)*(vres+vbl));
@@ -445,6 +447,12 @@ int get_native(unsigned char *data, struct timing_ch7036* prefer, int* aspect,
   return seen_pref;
 }
 
+/* Using 'fake' standard timing entries to cover some established timings */
+#define EST_TIME_640x480x60 (EDID_N_STDTIME+0)
+#define EST_TIME_800x600x60 (EDID_N_STDTIME+1)
+#define EST_TIME_1024x768x60 (EDID_N_STDTIME+2)
+#define KNOWN_EST_TIMES 3
+
 int get_standard(unsigned char *data,
                  struct timing_ch7036 **mon, int *found_aspect,
                  int force_maxw, int force_aspect, int verbose)
@@ -460,32 +468,46 @@ int get_standard(unsigned char *data,
   else
     native_aspect = find_aspect_fromisize(data);
 
-  for(i=0; i < 11; i++) {
+  for(i=0; i < (EDID_N_STDTIME + KNOWN_EST_TIMES); i++) {
     int hinfo = 0x01;
     int vinfo = 0x01;
     int hres, vres;
 
-    if (i < 8) { hinfo = data[38+2*i]; vinfo = data[39+2*i];}
+    if (i < EDID_N_STDTIME) {
+      hinfo = data[EDID_STDTIMEH + STDTIME_SIZE*i];
+      vinfo = data[EDID_STDTIMEV + STDTIME_SIZE*i];
+    }
     /* 8-10 check established timing 60Hz entries */
-    if ((i == 8)  && (data[35] & 0x20)) { hinfo = (640-248)/8; vinfo = 0x40; }
-    if ((i == 9)  && (data[35] & 0x01)) { hinfo = (800-248)/8; vinfo = 0x40; }
-    if ((i == 10) && (data[36] & 0x08)) { hinfo = (1024-248)/8;vinfo = 0x40; }
+    if ((i == EST_TIME_640x480x60) && (data[EDID_ESTTIME1] & 0x20)) {
+      hinfo = (640-STDTIME_HBASE)/STDTIME_HMULT;
+      vinfo = ASPECT_4_3 << STDTIME_VASPECT_SHIFT;
+    }
+    if ((i == EST_TIME_800x600x60) && (data[EDID_ESTTIME1] & 0x01)) {
+      hinfo = (800-STDTIME_HBASE)/STDTIME_HMULT;
+      vinfo = ASPECT_4_3 << STDTIME_VASPECT_SHIFT;
+    }
+    if ((i == EST_TIME_1024x768x60) && (data[EDID_ESTTIME2] & 0x08)) {
+      hinfo = (1024-STDTIME_HBASE)/STDTIME_HMULT;
+      vinfo = ASPECT_4_3 << STDTIME_VASPECT_SHIFT;
+    }
 
     /* 01 01 is pad by spec, but 00 00 and 20 20 are see in wild */
     if (((hinfo == 0x01) && (vinfo == 0x01)) ||
         ((hinfo == 0x00) && (vinfo == 0x00)) ||
         ((hinfo == 0x20) && (vinfo == 0x20)))
       continue;
-    /* FIXME only doing 60Hz */
-    if ((vinfo & 0x3f) != 0) continue;
+    /* Not doing above 60Hz */
+    if ((vinfo & STDTIME_VREFMINUS60_MASK) != 0) continue;
 
-    hres = (hinfo * 8) + 248;
-    if (verbose) printf("Found %d wide %s\n", hres, aspect_to_str[vinfo>>6]);
+    hres = (hinfo * STDTIME_HMULT) + STDTIME_HBASE;
+    if (verbose) printf("Found %d wide %s\n", hres,
+                        aspect_to_str[vinfo>>STDTIME_VASPECT_SHIFT]);
     if ((force_maxw > 0) && (hres > force_maxw)) continue;
 
-    if (verbose) printf("Try %d wide %s\n", hres, aspect_to_str[vinfo>>6]);
+    if (verbose) printf("Try %d wide %s\n", hres,
+                        aspect_to_str[vinfo>>STDTIME_VASPECT_SHIFT]);
 
-    switch (vinfo >> 6) {
+    switch (vinfo >> STDTIME_VASPECT_SHIFT) {
     case ASPECT_16_10:
       vres = (hres * 10)/16;
       break;
@@ -514,27 +536,29 @@ int get_standard(unsigned char *data,
     if (found_md >= 0) {
       /* Found a mode that we know and monitor can do */
       if ((curbest == NULL) ||
-          (((vinfo >> 6) == native_aspect) &&
+          (((vinfo >> STDTIME_VASPECT_SHIFT) == native_aspect) &&
            ((curbest_aspect != native_aspect) || (hres > curbest->ha)))) {
         /* We had nothing, or we found first or bigger native aspect */
         if (verbose) printf("Better mode width %d, aspect %s\n",
-                            hres, aspect_to_str[vinfo>>6]);
+                            hres, aspect_to_str[vinfo>>STDTIME_VASPECT_SHIFT]);
         curbest = known_modes + found_md;
-        curbest_aspect = (vinfo >> 6);
+        curbest_aspect = (vinfo >> STDTIME_VASPECT_SHIFT);
       } else if (curbest_aspect != native_aspect) {
         if ((native_aspect == ASPECT_16_10) &&
-            ((vinfo >> 6) == ASPECT_16_9) &&
+            ((vinfo >> STDTIME_VASPECT_SHIFT) == ASPECT_16_9) &&
             ((curbest_aspect != ASPECT_16_9) || (hres > curbest->ha))) {
           /* Looking for 16:10, found first 16:9 or bigger 16:9 */
           if (verbose) printf("Want 16:10 use 16:9 width %d, aspect %s\n",
-                              hres, aspect_to_str[vinfo>>6]);
+                              hres,
+                              aspect_to_str[vinfo>>STDTIME_VASPECT_SHIFT]);
           curbest = known_modes + found_md;
-          curbest_aspect = (vinfo >> 6);
+          curbest_aspect = (vinfo >> STDTIME_VASPECT_SHIFT);
         } else if (hres > curbest->ha) {
           if (verbose) printf("Better based on size: width %d, aspect %s\n",
-                              hres, aspect_to_str[vinfo>>6]);
+                              hres,
+                              aspect_to_str[vinfo>>STDTIME_VASPECT_SHIFT]);
           curbest = known_modes + found_md;
-          curbest_aspect = (vinfo >> 6);
+          curbest_aspect = (vinfo >> STDTIME_VASPECT_SHIFT);
         }
       }
     }
@@ -1044,9 +1068,9 @@ int main(int argc, char *argv[])
     } else {
       /* Got an EDID, use it to figure out the timing */
       if (verbose) {
-        show_edid_data(stdout, &edid[0], 128, 0);
+        show_edid_data(stdout, &edid[0], EDID_SIZE, 0);
         if (edid[EDID_EXT_FLAG] > 0)
-          show_edid_data(stdout, &edid[128], 128, 128);
+          show_edid_data(stdout, &edid[EDID_SIZE], EEXT_SIZE, EDID_SIZE);
         show_edid(stdout, &edid[0], (edid[EDID_EXT_FLAG] > 0) ? 1:0);
       }
       if ((forcen_x == 0) &&
@@ -1173,9 +1197,9 @@ int main(int argc, char *argv[])
       fprintf(edidlog, "%s audio pass through because %s\n\n",
               enable_audio ? "Enable" : "No", why_aud);
       fprintf(edidlog, "EDID Data read from HDMI:\n");
-      show_edid_data(edidlog, &edid[0], 128, 0);
+      show_edid_data(edidlog, &edid[0], EDID_SIZE, 0);
       if (edid[EDID_EXT_FLAG] > 0)
-        show_edid_data(edidlog, &edid[128], 128, 128);
+        show_edid_data(edidlog, &edid[EDID_SIZE], EEXT_SIZE, EDID_SIZE);
       show_edid(edidlog, &edid[0], (edid[EDID_EXT_FLAG] > 0) ? 1:0);
       fclose(edidlog);
     }
