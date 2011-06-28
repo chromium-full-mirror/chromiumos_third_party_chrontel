@@ -1001,6 +1001,7 @@ int main(int argc, char *argv[])
     char *why_aud;
     int enable_audio = 0;
     int output_hdmi = 0;
+    int use_black_window;
     int ares;
     if ((edidlog = fopen(EDID_LOG, "w")) != NULL) {
       fprintf(edidlog, "No HDMI device detected\n");
@@ -1150,8 +1151,18 @@ int main(int argc, char *argv[])
       }
     } while (err != 0);
 
-    if (new_width != xmode->width)
+    use_black_window = 0;
+
+    /* The use flag bogus_screen_resizes gives this define to both */
+    /* this driver and the chromeos window manager. When set the   */
+    /* wm will clear the unused screen areas, so we don't have to  */
+    /* This allows the login/unlock screen to clear correctly      */
+#ifndef BOGUS_SCREEN_RESIZES
+    if (new_width != xmode->width) {
       bwin = x_start_blank(dpy, screen, root, xmode->width, xmode->height);
+      use_black_window = 1;
+    }
+#endif
 
     if (verbose) printf("Restore defaults:\n");
     ch_restore_notin_seq(i2cdev, reglist, verbose);
@@ -1184,7 +1195,7 @@ int main(int argc, char *argv[])
 
     if (new_width != xmode->width) {
       if (verbose) printf("Change X active to %dx%d\n", new_width, new_height);
-      set_x_size(dpy, root, new_width, new_height, 1, bwin);
+      set_x_size(dpy, root, new_width, new_height, use_black_window, bwin);
     }
     if (verbose) printf("Monitor should be on!\n");
     if ((edidlog = fopen(EDID_LOG, "w")) != NULL) {
