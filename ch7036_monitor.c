@@ -25,7 +25,7 @@
 #error Only tested with xrandr 1.2
 #endif
 
-
+#include "audio_utils.h"
 #include "ch7036.h"
 #include "edid_utils.h"
 #include "xrr_utils.h"
@@ -993,6 +993,8 @@ int main(int argc, char *argv[])
   lcd_timing.vw = xmode->vSyncEnd - xmode->vSyncStart;
   lcd_timing.scale = MK_SCALE(0, 0);
 
+  audio_init(verbose);
+
   while (1) {
     int new_width;
     int new_height;
@@ -1197,6 +1199,7 @@ int main(int argc, char *argv[])
       if (verbose) printf("Change X active to %dx%d\n", new_width, new_height);
       set_x_size(dpy, root, new_width, new_height, use_black_window, bwin);
     }
+    audio_to_hdmi(enable_audio);
     if (verbose) printf("Monitor should be on!\n");
     if ((edidlog = fopen(EDID_LOG, "w")) != NULL) {
       fprintf(edidlog, "%sI output %dx%d%s. Use %dx%d on local LCD.\n",
@@ -1238,6 +1241,7 @@ int main(int argc, char *argv[])
         ch_write_reg_sequence(i2cdev, reglist);
         ch_calculate_incs(i2cdev);
         ch_monitor_on(i2cdev, output_hdmi, verbose);
+        audio_to_hdmi(enable_audio);
         hdmiOn = 1;
         /* Machine was suspended, so the firmware was lost */
         needReload = reloadfw(i2cdev, fwfile, argv[0], gpiodev, 0, verbose);
@@ -1273,6 +1277,7 @@ int main(int argc, char *argv[])
           hdmiOn = 1;
         }
       }
+      audio_check_jack(enable_audio);
       sleep(gpiodev ? YIELD_GPIO_DETECT_SECS : YIELD_CHRONTEL_DETECT_SECS);
       if (test_flags & CHTEST_FORCEDETECT)
         mondetect = 1;
@@ -1294,6 +1299,7 @@ int main(int argc, char *argv[])
     }
     if (hdmiOn && !needReload) {
       ch_monitor_off_keep_ddc(i2cdev);
+      audio_to_hdmi(0);
       hdmiOn = 0;
       if (verbose) printf("Monitor should be off!\n");
       sleep(YIELD_CHRONTEL_TURN_OFF_SECS);
