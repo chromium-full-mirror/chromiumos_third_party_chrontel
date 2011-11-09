@@ -91,6 +91,12 @@ static int set_master_switch(int value)
   return aud_switch(set, "Master", pval);
 }
 
+static int set_spdif_switch(int value)
+{
+  int *pval = &value;
+  return aud_switch(set, "IEC958", pval);
+}
+
 static int open_jack_event(int etype)
 {
   DIR *ev_dir;
@@ -173,7 +179,7 @@ static int get_force_mute()
   return (access(FORCE_MUTE_FILE, R_OK) == 0);
 }
 
-static void set_force_mute()
+static void enable_hdmi_audio()
 {
   int fd;
   do {
@@ -186,9 +192,11 @@ static void set_force_mute()
   }
   set_master_switch(0);
   if (aud_verbose) printf("Audio: muted Master\n");
+  set_spdif_switch(1);
+  if (aud_verbose) printf("Audio: enabled SPDIF\n");
 }
 
-static void clear_force_mute()
+static void disable_hdmi_audio()
 {
   int err;
   do {
@@ -198,6 +206,8 @@ static void clear_force_mute()
     aud_errno("removing %s", FORCE_MUTE_FILE);
   set_master_switch(1);
   if (aud_verbose) printf("Audio: unmuted Master\n");
+  set_spdif_switch(0);
+  if (aud_verbose) printf("Audio: disabled SPDIF\n");
 }
 
 #endif /* USE_ALSA_CONTROL */
@@ -230,12 +240,12 @@ void audio_to_hdmi(int enable)
     if (aud_verbose) printf("Audio: headphone is %s\n",
                             hp_jack.status ? "plugged-in" : "unplugged");
     if (hp_jack.status == unplugged)
-      set_force_mute();
+      enable_hdmi_audio();
     else if (get_force_mute())
-      clear_force_mute();
+      disable_hdmi_audio();
   } else {
     if (get_force_mute())
-      clear_force_mute();
+      disable_hdmi_audio();
   }
 
 #endif
