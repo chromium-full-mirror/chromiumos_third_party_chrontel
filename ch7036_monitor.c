@@ -1159,7 +1159,11 @@ int main(int argc, char *argv[])
     /* this driver and the chromeos window manager. When set the   */
     /* wm will clear the unused screen areas, so we don't have to  */
     /* This allows the login/unlock screen to clear correctly      */
-#ifndef BOGUS_SCREEN_RESIZES
+    /* Aura does not do this but the flag is set to allow non-aura */
+#if defined(BOGUS_SCREEN_RESIZES) && !defined(USE_AURA)
+    if (verbose) printf("Use collusion with window manager to clear screen\n");
+#else
+    if (verbose) printf("Try black window to clear screen\n");
     if (new_width != xmode->width) {
       bwin = x_start_blank(dpy, screen, root, xmode->width, xmode->height);
       use_black_window = 1;
