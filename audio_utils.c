@@ -78,17 +78,10 @@ static int aud_switch(enum aud_cmd cmd, const char *name, int *value)
   return err;
 }
 
-static int get_master_switch()
-{
-  int value = 0;
-  aud_switch(get, "Master", &value);
-  return value;
-}
-
-static int set_master_switch(int value)
+static int set_speaker_switch(int value)
 {
   int *pval = &value;
-  return aud_switch(set, "Master", pval);
+  return aud_switch(set, "Speaker", pval);
 }
 
 static int set_spdif_switch(int value)
@@ -190,8 +183,8 @@ static void enable_hdmi_audio()
   } else {
     close(fd);
   }
-  set_master_switch(0);
-  if (aud_verbose) printf("Audio: muted Master\n");
+  set_speaker_switch(0);
+  if (aud_verbose) printf("Audio: muted Speaker\n");
   set_spdif_switch(1);
   if (aud_verbose) printf("Audio: enabled SPDIF\n");
 }
@@ -204,8 +197,8 @@ static void disable_hdmi_audio()
   } while ((err == -1 ) && ((errno == EAGAIN) || (errno == EWOULDBLOCK)));
   if (err == -1)
     aud_errno("removing %s", FORCE_MUTE_FILE);
-  set_master_switch(1);
-  if (aud_verbose) printf("Audio: unmuted Master\n");
+  set_speaker_switch(1);
+  if (aud_verbose) printf("Audio: unmuted Speaker\n");
   set_spdif_switch(0);
   if (aud_verbose) printf("Audio: disabled SPDIF\n");
 }
