@@ -18,7 +18,7 @@
 #ifdef USE_ALSA_CONTROL
 static int aud_verbose = 0;
 static struct aud_jack_event hp_jack;
-static char card[64] = "default";
+static char card[64] = "hw:0";
 
 static int aud_switch(enum aud_cmd cmd, const char *name, int *value)
 {
