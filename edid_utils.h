@@ -167,7 +167,7 @@
 #define COL_META 3
 
 /* Number of test EDID arrays available to get/show_test_edid */
-#define N_TEST_EDIDS 5
+#define N_TEST_EDIDS 6
 
 int edid_valid(unsigned char *edid_data);
 int edid_has_hdmi_info(unsigned char *edid_data, int ext);

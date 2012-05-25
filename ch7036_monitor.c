@@ -220,7 +220,16 @@ static struct timing_ch7036 known_modes[] = {
     1,  1,  1,
     2160,  1600,112, 168,   1245,1200,  3,    4  ,
     MK_SCALE(0, 0),
- },
+  },
+  // CVT 1920x1200 reduced blanking modeline (not from chrontel)
+  // (As well as CVT this matches Dell monitor DTD)
+  {
+    154000,
+    MK_PIXEL_HDMI(1, 0, 0),
+    1,  0,  1,
+    2080,  1920, 48, 32,   1235,1200,  3,    6 ,
+    MK_SCALE(0, 0),
+  },
 
 
 };
@@ -467,6 +476,8 @@ int get_standard(unsigned char *data,
     native_aspect = force_aspect;
   else
     native_aspect = find_aspect_fromisize(data);
+  if (verbose) printf("Check standard modes (monitor native aspect %s)\n",
+                      aspect_to_str[native_aspect]);
 
   for(i=0; i < (EDID_N_STDTIME + KNOWN_EST_TIMES); i++) {
     int hinfo = 0x01;
@@ -502,10 +513,14 @@ int get_standard(unsigned char *data,
     hres = (hinfo * STDTIME_HMULT) + STDTIME_HBASE;
     if (verbose) printf("Found %d wide %s\n", hres,
                         aspect_to_str[vinfo>>STDTIME_VASPECT_SHIFT]);
-    if ((force_maxw > 0) && (hres > force_maxw)) continue;
-
-    if (verbose) printf("Try %d wide %s\n", hres,
-                        aspect_to_str[vinfo>>STDTIME_VASPECT_SHIFT]);
+    if ((force_maxw > 0) && (hres > force_maxw)) {
+      if (verbose) printf("-- ignore because greater than forced max width\n");
+      continue;
+    }
+    if (hres > CH_MAX_HRES) {
+      if (verbose) printf("-- too wide for scaler\n");
+      continue;
+    }
 
     switch (vinfo >> STDTIME_VASPECT_SHIFT) {
     case ASPECT_16_10:
@@ -561,7 +576,8 @@ int get_standard(unsigned char *data,
           curbest_aspect = (vinfo >> STDTIME_VASPECT_SHIFT);
         }
       }
-    }
+    } else if (verbose) printf("-- no match in known_modes table\n");
+
   }
   if (curbest != NULL) {
     *mon = curbest;
