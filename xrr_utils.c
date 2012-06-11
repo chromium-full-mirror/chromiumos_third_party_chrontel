@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium OS Authors. All rights reserved.
+// Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,7 +42,7 @@ XRRModeInfo *get_x_mode_info(Display *dpy, Window root)
 {
   XRRScreenResources *resources;
   int out, md;
-  RRCrtc activecrtc;
+  RRCrtc activecrtc = 0;
   XRRCrtcInfo *cinfo;
   RRMode activemode;
   int major, minor;
@@ -65,6 +65,9 @@ XRRModeInfo *get_x_mode_info(Display *dpy, Window root)
       break;
     }
   }
+  if (!activecrtc)
+    return NULL;
+
   if (out >= resources->noutput) {
     fprintf(stderr, "Could not find active output\n");
     exit(1);

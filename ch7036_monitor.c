@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium OS Authors. All rights reserved.
+// Copyright (c) 2012 The Chromium OS Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -737,6 +737,33 @@ int get_edid(int i2cdev, unsigned char *edid, int newFirmware, int verbose)
   return 0;
 }
 
+int init_lcd_timing(struct timing_ch7036 *lcd_timing, int *width_fix,
+                    XRRModeInfo *xmode)
+{
+  if ((xmode->width == 1366) && (xmode->height == 768)) {
+    width_fix = width_fix_1366x768;
+  } else if ((xmode->width == 1280) && (xmode->height == 800)) {
+    width_fix = width_fix_1280x800;
+  } else
+    width_fix = NULL;
+
+  lcd_timing->clk_khz = xmode->dotClock/1000;
+  lcd_timing->pixel_fmt = PIXEL_FMT_18BIT;
+  lcd_timing->hs_pol = (xmode->modeFlags & RR_HSyncPositive) ? 1 : 0;
+  lcd_timing->vs_pol = (xmode->modeFlags & RR_VSyncPositive) ? 1 : 0;
+  lcd_timing->de_pol = 1;
+
+  lcd_timing->ht = xmode->hTotal;
+  lcd_timing->ha = xmode->width;
+  lcd_timing->ho = xmode->hSyncStart - xmode->width;
+  lcd_timing->hw = xmode->hSyncEnd - xmode->hSyncStart;
+  lcd_timing->vt = xmode->vTotal;
+  lcd_timing->va = xmode->height;
+  lcd_timing->vo = xmode->vSyncStart - xmode->height;
+  lcd_timing->vw = xmode->vSyncEnd - xmode->vSyncStart;
+  lcd_timing->scale = MK_SCALE(0, 0);
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -979,36 +1006,15 @@ int main(int argc, char *argv[])
   screen = DefaultScreen (dpy);
   root = RootWindow (dpy, screen);
   xmode = get_x_mode_info(dpy, root);
-  if (verbose) showmode(xmode);
+  if (xmode != NULL) {
+    if (verbose) showmode(xmode);
 
-  if (fixupx) {
-    set_x_size(dpy, root, xmode->width, xmode->height, 0, 0);
-    if (only_fixupx) exit(0);
+    if (fixupx) {
+      set_x_size(dpy, root, xmode->width, xmode->height, 0, 0);
+      if (only_fixupx) exit(0);
+    }
+    init_lcd_timing(&lcd_timing, width_fix, xmode);
   }
-
-  if ((xmode->width == 1366) && (xmode->height == 768)) {
-    width_fix = width_fix_1366x768;
-  } else if ((xmode->width == 1280) && (xmode->height == 800)) {
-    width_fix = width_fix_1280x800;
-  } else
-    width_fix = NULL;
-
-  lcd_timing.clk_khz = xmode->dotClock/1000;
-  lcd_timing.pixel_fmt = PIXEL_FMT_18BIT;
-  lcd_timing.hs_pol = (xmode->modeFlags & RR_HSyncPositive) ? 1 : 0;
-  lcd_timing.vs_pol = (xmode->modeFlags & RR_VSyncPositive) ? 1 : 0;
-  lcd_timing.de_pol = 1;
-
-  lcd_timing.ht = xmode->hTotal;
-  lcd_timing.ha = xmode->width;
-  lcd_timing.ho = xmode->hSyncStart - xmode->width;
-  lcd_timing.hw = xmode->hSyncEnd - xmode->hSyncStart;
-  lcd_timing.vt = xmode->vTotal;
-  lcd_timing.va = xmode->height;
-  lcd_timing.vo = xmode->vSyncStart - xmode->height;
-  lcd_timing.vw = xmode->vSyncEnd - xmode->vSyncStart;
-  lcd_timing.scale = MK_SCALE(0, 0);
-
   audio_init(verbose);
 
   while (1) {
@@ -1121,6 +1127,13 @@ int main(int argc, char *argv[])
 
     /* Could loop here 3 times: preferred, standard and default */
     do {
+      while (xmode == NULL) {
+        if (verbose) printf("Querying xmode info\n");
+        xmode = get_x_mode_info(dpy, root);
+        if (xmode == NULL)
+          sleep(YIELD_CHRONTEL_DETECT_SECS);
+      }
+      init_lcd_timing(&lcd_timing, width_fix, xmode);
       /* Catch error cases either from the code above or second pass of loop */
       if (mon_timing == NULL) {
         if (verbose)
@@ -1286,8 +1299,11 @@ int main(int argc, char *argv[])
         if (gpiodev) ch_suspend_firmware(i2cdev, verbose);
       } else {
         DPMSInfo(dpy, &state, &onoff);
-        if ((state != DPMSModeOn) && hdmiOn) {
-          if (verbose) printf("DPMS is not on, turn off hdmi\n");
+        xmode = get_x_mode_info(dpy, root);
+        if (((state != DPMSModeOn) && hdmiOn) || (xmode == NULL)) {
+          if (verbose) printf("DPMS is %son, output is %s, turn off hdmi\n",
+                              (state != DPMSModeOn) ? "not " : "",
+                              (xmode == NULL) ? "disabled":"enabled");
           ch_monitor_off_keep_ddc(i2cdev);
           hdmiOn = 0;
         } else if ((state == DPMSModeOn) && !hdmiOn) {
