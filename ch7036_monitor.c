@@ -1313,7 +1313,7 @@ int main(int argc, char *argv[])
           hdmiOn = 1;
         }
       }
-      audio_check_jack(enable_audio);
+      audio_to_hdmi(enable_audio);
       sleep(gpiodev ? YIELD_GPIO_DETECT_SECS : YIELD_CHRONTEL_DETECT_SECS);
       if (test_flags & CHTEST_FORCEDETECT)
         mondetect = 1;

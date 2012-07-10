@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include <assert.h>
-#include <alsa/asoundlib.h>
 #include <dirent.h>
 #include <linux/input.h>
 #include <stdio.h>
@@ -13,249 +12,104 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <cras_client.h>
+
 #include "audio_utils.h"
 
-#ifdef USE_ALSA_CONTROL
+static const size_t MAX_IONODES = 20;
 static int aud_verbose = 0;
-static struct aud_jack_event hp_jack;
-/* TODO(dgreid) - Determine correct card in GAVD instead of hard-code will break
- * here with addition of USB audio devices. */
-static char card[64] = "hw:0";
+static int hdmi_audio_available;
 
-static int aud_switch(enum aud_cmd cmd, const char *name, int *value)
+static struct cras_client *client;
+static enum {
+  CLIENT_INIT,
+  CLIENT_CREATED,
+  CLIENT_CONNECTED,
+  CLIENT_THREAD_RUN,
+  CLIENT_READY,
+} client_status;
+
+static int connect_to_server()
 {
   int err = 0;
-  snd_mixer_t *handle;
-  snd_mixer_selem_id_t *sid;
-  snd_mixer_elem_t *elem;
-  snd_mixer_selem_id_alloca(&sid);
-
-  if ((err = snd_mixer_open(&handle, 0)) < 0) {
-    aud_errno("mixer %s open", card);
-    return err;
-  }
-  if ((err = snd_mixer_attach(handle, card)) < 0) {
-    aud_errno("mixer attach %s", card);
-    snd_mixer_close(handle);
-    return err;
-  }
-  if ((err = snd_mixer_selem_register(handle, NULL, NULL)) < 0) {
-    aud_errno("mixer register");
-    snd_mixer_close(handle);
-    return err;
-  }
-  if ((err = snd_mixer_load(handle)) < 0) {
-    aud_errno("mixer %s load", card);
-    snd_mixer_close(handle);
-    return err;
-  }
-  for (elem = snd_mixer_first_elem(handle); elem;
-       elem = snd_mixer_elem_next(elem)) {
-    snd_mixer_selem_get_id(elem, sid);
-    if (!(strcmp(snd_mixer_selem_id_get_name(sid), name))) {
-      if (aud_verbose)
-        printf("Audio: found %s audio switch\n", name);
-      if (snd_mixer_selem_has_playback_switch(elem)) {
-        switch (cmd) {
-          case get:
-            err = snd_mixer_selem_get_playback_switch(elem, SND_MIXER_SCHN_MONO,
-                                                      value);
-            if (err < 0)
-              aud_errno("getting %s", name);
-            break;
-          case set:
-            err = snd_mixer_selem_set_playback_switch_all(elem, *value);
-            if (err < 0)
-              aud_errno("setting %s -> %d", name, *value);
-            break;
-          default:
-            aud_error("unknown switch cmd %d for %s\n", cmd, name);
-            err = -1;
-            break;
-        }
-      }
+  switch (client_status) {
+  case CLIENT_INIT:
+    err = cras_client_create(&client);
+    if (err) {
+      printf("Audio: failed to create client\n");
+      return err;
     }
-  }
-  snd_mixer_close(handle);
-  return err;
-}
-
-static int set_speaker_switch(int value)
-{
-  int *pval = &value;
-  return aud_switch(set, "Speaker", pval);
-}
-
-static int set_spdif_switch(int value)
-{
-  int *pval = &value;
-  return aud_switch(set, "IEC958", pval);
-}
-
-static int open_jack_event(int etype)
-{
-  DIR *ev_dir;
-  struct dirent *ev_entry;
-  int fd = -1;
-
-  assert(etype & SW_HEADPHONE_INSERT);
-
-  if((ev_dir = opendir(INPUT_DIR)) == NULL) {
-    aud_errno("opening dir %s", INPUT_DIR);
-    return -1;
-  }
-  if (chdir(INPUT_DIR)) {
-    aud_errno("chdir to %s", INPUT_DIR);
-    return -1;
-  }
-
-  while ((ev_entry = readdir(ev_dir))) {
-    if ((ev_entry->d_type == DT_CHR) &&
-        !(strncmp(ev_entry->d_name, "event", 5))) {
-
-      if (access(ev_entry->d_name, R_OK) < 0) {
-        aud_errno("read access %s", ev_entry->d_name);
-        return -1;
-      }
-
-      if ((fd = open(ev_entry->d_name, O_RDONLY)) < 0) {
-        aud_errno("opening event %s", ev_entry->d_name);
-        return -1;
-      }
-
-      unsigned long events[NBITS(EV_MAX)];
-      memset(events, 0, sizeof(events));
-      if (ioctl(fd, EVIOCGBIT(0, EV_MAX), events) < 0) {
-        aud_errno("ioctl EVIOCGBIT for events");
-        return -1;
-      }
-
-      if (IS_BIT_SET(EV_SW, events)) {
-        unsigned long sw_events[NBITS(SW_MAX)];
-        memset(sw_events, 0, sizeof(sw_events));
-
-        if (ioctl(fd, EVIOCGBIT(EV_SW, SW_MAX), sw_events) < 0) {
-          aud_errno("ioctl EVIOCGBIT for SW events");
-          return -1;
-        }
-        if (IS_BIT_SET(etype, sw_events)) {
-          break;
-        }
-      }
+    client_status = CLIENT_CREATED;
+    // fallthrough
+  case CLIENT_CREATED:
+    err = cras_client_connect(client);
+    if (err) {
+      printf("Audio: failed to connect to server\n");
+      return err;
     }
+    client_status = CLIENT_CONNECTED;
+    // fallthrough
+  case CLIENT_CONNECTED:
+    err = cras_client_run_thread(client);
+    if (err) {
+      printf("Audio: failed to run client thread\n");
+      return err;
+    }
+    client_status = CLIENT_THREAD_RUN;
+    // fallthrough
+  case CLIENT_THREAD_RUN:
+    err = cras_client_connected_wait(client);
+    if (err) {
+      printf(stderr, "Audio: failed to wait connected.\n");
+      return err;
+    }
+    client_status = CLIENT_READY;
+    printf("Audio: client ready\n");
+    // fallthrough
+  case CLIENT_READY:
+  default:
+    return 0;
   }
-  return fd;
 }
-
-static int open_jack_hp_event(struct aud_jack_event *jack) {
-  jack->etype = SW_HEADPHONE_INSERT;
-  jack->fd = open_jack_event(SW_HEADPHONE_INSERT);
-  jack->status = unknown;
-  return jack->fd;
-}
-
-static void get_jack_status(struct aud_jack_event *jack) {
-  unsigned long events[NBITS(SW_MAX)];
-  assert(jack->fd > 0);
-  memset(events, 0, sizeof(events));
-  ioctl(jack->fd, EVIOCGSW(sizeof(events)), events);
-  jack->status = IS_BIT_SET(hp_jack.etype, events);
-}
-
-static void close_jack_event(struct aud_jack_event *jack)
-{
-  close(jack->fd);
-}
-
-#define FORCE_MUTE_FILE "/var/run/chrontel/forced_mute"
-
-static int get_force_mute()
-{
-  return (access(FORCE_MUTE_FILE, R_OK) == 0);
-}
-
-static void enable_hdmi_audio()
-{
-  int fd;
-  do {
-    fd = creat(FORCE_MUTE_FILE, S_IRUSR | S_IWUSR);
-  } while ((fd == -1) && ((errno == EAGAIN) || (errno == EWOULDBLOCK)));
-  if (fd == -1) {
-    aud_errno("creating %s", FORCE_MUTE_FILE);
-  } else {
-    close(fd);
-  }
-  set_speaker_switch(0);
-  if (aud_verbose) printf("Audio: muted Speaker\n");
-  set_spdif_switch(1);
-  if (aud_verbose) printf("Audio: enabled SPDIF\n");
-}
-
-static void disable_hdmi_audio()
-{
-  int err;
-  do {
-    err = remove(FORCE_MUTE_FILE);
-  } while ((err == -1 ) && ((errno == EAGAIN) || (errno == EWOULDBLOCK)));
-  if (err == -1)
-    aud_errno("removing %s", FORCE_MUTE_FILE);
-  set_speaker_switch(1);
-  if (aud_verbose) printf("Audio: unmuted Speaker\n");
-  set_spdif_switch(0);
-  if (aud_verbose) printf("Audio: disabled SPDIF\n");
-}
-
-#endif /* USE_ALSA_CONTROL */
 
 int audio_init(int verbose)
 {
   int err = 0;
-#ifdef USE_ALSA_CONTROL
-
   aud_verbose = verbose;
-  if ((err = open_jack_hp_event(&hp_jack)) < 0) {
-    aud_error("opening hp jack event\n");
-  } else {
-    get_jack_status(&hp_jack);
-  }
-
-#endif
-  return err;
+  if (aud_verbose) printf("Audio: init\n");
+  connect_to_server();
+  return 0;
 }
 
-void audio_to_hdmi(int enable)
+void audio_to_hdmi(int available)
 {
-#ifdef USE_ALSA_CONTROL
+  size_t num_devs = 0;
+  size_t num_nodes = MAX_IONODES;
+  struct cras_ionode_info nodes[MAX_IONODES];
+  int rc, i;
 
+  if (available == hdmi_audio_available)
+    return;
   if (aud_verbose) printf("Audio: Set HDMI audio output to %s\n",
-                          enable ? "Enable" : "Disable");
-
-  if (enable) {
-    get_jack_status(&hp_jack);
-    if (aud_verbose) printf("Audio: headphone is %s\n",
-                            hp_jack.status ? "plugged-in" : "unplugged");
-    if (hp_jack.status == unplugged)
-      enable_hdmi_audio();
-    else if (get_force_mute())
-      disable_hdmi_audio();
-  } else {
-    if (get_force_mute())
-      disable_hdmi_audio();
-  }
-
-#endif
-}
-
-void audio_check_jack(int enable)
-{
-#ifdef USE_ALSA_CONTROL
-  if (enable == 0)
+                          available ? "Available" : "Unavailable");
+  hdmi_audio_available = available;
+  if (connect_to_server() != 0)
     return;
 
-  enum jack_status cur_status = hp_jack.status;
-  get_jack_status(&hp_jack);
-  if (hp_jack.status != cur_status)
-    audio_to_hdmi(enable);
+  rc = cras_client_get_output_devices(client, NULL, nodes, &num_devs,
+                                      &num_nodes);
+  if (rc < 0) {
+    printf("Audio: cannot get output nodes\n");
+    return;
+  }
 
-#endif
+  for (i = 0; i < num_nodes; i++) {
+    if (!strcmp(nodes[i].name, "IEC958")) {
+      cras_client_set_plug(client, nodes[i].iodev_idx, nodes[i].ionode_idx,
+                           available);
+      return;
+    }
+  }
+
+  printf("Audio: IEC959 node is not found");
 }
