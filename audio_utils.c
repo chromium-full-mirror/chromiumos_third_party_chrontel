@@ -105,8 +105,9 @@ void audio_to_hdmi(int available)
 
   for (i = 0; i < num_nodes; i++) {
     if (!strcmp(nodes[i].name, "IEC958")) {
-      cras_client_set_node_attr(client, nodes[i].iodev_idx,
-                                nodes[i].ionode_idx, IONODE_ATTR_PLUGGED,
+      cras_node_id_t node_id = cras_make_node_id(nodes[i].iodev_idx,
+                                                 nodes[i].ionode_idx);
+      cras_client_set_node_attr(client, node_id, IONODE_ATTR_PLUGGED,
                                 available);
       return;
     }
