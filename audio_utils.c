@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <dirent.h>
 #include <linux/input.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
@@ -18,6 +19,10 @@
 
 static const size_t MAX_IONODES = 20;
 static int aud_verbose = 0;
+
+/* These variables are shared with the report thread. */
+static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 static int hdmi_audio_available;
 
 static struct cras_client *client;
@@ -60,7 +65,7 @@ static int connect_to_server()
   case CLIENT_THREAD_RUN:
     err = cras_client_connected_wait(client);
     if (err) {
-      printf(stderr, "Audio: failed to wait connected.\n");
+      printf("Audio: failed to wait connected.\n");
       return err;
     }
     client_status = CLIENT_READY;
@@ -72,35 +77,23 @@ static int connect_to_server()
   }
 }
 
-int audio_init(int verbose)
-{
-  int err = 0;
-  aud_verbose = verbose;
-  if (aud_verbose) printf("Audio: init\n");
-  connect_to_server();
-  return 0;
-}
-
-void audio_to_hdmi(int available)
+/* Sends the availability message to server. Returns 0 if successful, -1
+ * otherwise. */
+static int send_state_to_server(int available)
 {
   size_t num_devs = 0;
   size_t num_nodes = MAX_IONODES;
   struct cras_ionode_info nodes[MAX_IONODES];
   int rc, i;
 
-  if (available == hdmi_audio_available)
-    return;
-  if (aud_verbose) printf("Audio: Set HDMI audio output to %s\n",
-                          available ? "Available" : "Unavailable");
-  hdmi_audio_available = available;
   if (connect_to_server() != 0)
-    return;
+    return -1;
 
   rc = cras_client_get_output_devices(client, NULL, nodes, &num_devs,
                                       &num_nodes);
   if (rc < 0) {
     printf("Audio: cannot get output nodes\n");
-    return;
+    return -1;
   }
 
   for (i = 0; i < num_nodes; i++) {
@@ -109,9 +102,58 @@ void audio_to_hdmi(int available)
                                                  nodes[i].ionode_idx);
       cras_client_set_node_attr(client, node_id, IONODE_ATTR_PLUGGED,
                                 available);
-      return;
+      return 0;
     }
   }
 
-  printf("Audio: IEC959 node is not found");
+  printf("Audio: IEC959 node is not found\n");
+  return -1;
+}
+
+/* A thread which reports the hdmi audio state to the server. */
+static void *report_thread(void *arg)
+{
+  /* The state that has been reported to the server successfully. */
+  int reported = 0;
+  int available;
+
+  while (1)
+  {
+    /* Wait until the availablity changes */
+    pthread_mutex_lock(&mutex);
+    while (hdmi_audio_available == reported)
+      pthread_cond_wait(&cond, &mutex);
+    available = hdmi_audio_available;
+    pthread_mutex_unlock(&mutex);
+
+    /* Report the new state */
+    if (send_state_to_server(available) == 0) {
+      reported = available;
+    } else {
+      /* If we failed to connect to the server, sleep for five seconds and
+       * retry. */
+      sleep(5);
+    }
+  }
+}
+
+int audio_init(int verbose)
+{
+  pthread_t thread;
+  aud_verbose = verbose;
+  if (aud_verbose) printf("Audio: init\n");
+  pthread_create(&thread, NULL, report_thread, NULL);
+  return 0;
+}
+
+void audio_to_hdmi(int available)
+{
+  if (available == hdmi_audio_available)
+    return;
+  if (aud_verbose) printf("Audio: Set HDMI audio output to %s\n",
+                          available ? "Available" : "Unavailable");
+  pthread_mutex_lock(&mutex);
+  hdmi_audio_available = available;
+  pthread_cond_signal(&cond);
+  pthread_mutex_unlock(&mutex);
 }

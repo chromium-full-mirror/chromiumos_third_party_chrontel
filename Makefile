@@ -8,7 +8,7 @@ CCFLAGS ?= -Wall -Werror
 PKG_CONFIG ?= pkg-config
 
 INCLUDE_DIRS = $(shell $(PKG_CONFIG) --cflags x11 xrandr libcras)
-LIB_DIRS = $(shell $(PKG_CONFIG) --libs x11 xrandr xext libcras)
+LIB_DIRS = $(shell $(PKG_CONFIG) --libs x11 xrandr xext libcras) -lpthread
 
 MON=ch7036_monitor
 BUG=ch7036_debug
