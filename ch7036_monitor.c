@@ -12,27 +12,17 @@
 #include <linux/i2c-dev.h>
 #include <sys/ioctl.h>
 #include <sys/time.h>
-#include <X11/Xlib.h>
-#include <X11/Xlibint.h>
-#include <X11/Xproto.h>
-#include <X11/Xatom.h>
-#include <X11/extensions/Xrandr.h>
-#include <X11/extensions/dpms.h>
-
-#if RANDR_MAJOR > 1 || (RANDR_MAJOR == 1 && RANDR_MINOR >= 2)
-#define HAS_RANDR_1_2 1
-#else
-#error Only tested with xrandr 1.2
-#endif
+#include <xf86drm.h>
+#include <xf86drmMode.h>
 
 #include "audio_utils.h"
 #include "ch7036.h"
+#include "drm_utils.h"
 #include "edid_utils.h"
-#include "xrr_utils.h"
 
 #define MAX_EDID_EXT 4
 
-#define DEF_DEV "/dev/i2c-2"
+#define DEF_DEV "/dev/i2c-chrontel"
 #define DEF_FW "/lib/firmware/chrontel/fw7036.bin"
 #define EDID_LOG "/var/log/hdmi_edid.log"
 
@@ -54,10 +44,6 @@ int test_flags = 0;
 #define ERR_NEWFW_RETRY -3
 #define ERR_READ_FAILED -4
 #define ERR_EXTRD_FAILED -5
-
-/* Width fixups for supported displays */
-int width_fix_1366x768[4] = {1366, 1024, 960, 1366};
-int width_fix_1280x800[4] = {1280, 1066, 1000, 1280};
 
 /* Known timings (from tbl7036.c) */
 static struct timing_ch7036 known_modes[] = {
@@ -235,91 +221,6 @@ static struct timing_ch7036 known_modes[] = {
 };
 #define N_KNOWN_MODES (sizeof(known_modes)/sizeof(struct timing_ch7036))
 
-
-struct timeval mkwin_tout;
-
-
-Window x_start_blank(Display *dpy, int screen, Window root, int lw, int lh)
-{
-  Window black_window;
-
-  XSetWindowAttributes attr;
-  XEvent expev;
-  struct timeval tv;
-  const struct timeval tout = {10, 500000};
-  const struct timeval animate_delay = {0, 300000};
-
-  int seen_expose;
-  attr.event_mask = ExposureMask;
-  attr.background_pixel = BlackPixel(dpy, screen);
-  attr.border_pixel = BlackPixel(dpy, screen);
-
-  black_window = XCreateWindow(dpy, root,
-                               0, 0, lw, lh, /* Full screen size */
-                               0, 0, /* No border */
-                               InputOutput, (Visual *)CopyFromParent,
-                               (CWBackPixel | CWBorderPixel | CWEventMask),
-                               &attr);
-  XMapWindow(dpy, black_window);
-
-  /* Need for the window to be created before we resize the root!    */
-  /* This is more tricky than it should be                           */
-  /* The initial Expose event is for the whole window                */
-  /* even though it is still being animated on to the actual screen  */
-  /* So Im going to wait animate_delay seconds after                 */
-  /* Same timer mechanism for 10 sec total timeout                   */
-    gettimeofday(&tv, NULL);
-    timeradd(&tv, &tout, &mkwin_tout);
-    do {
-      seen_expose = XCheckWindowEvent(dpy, black_window,
-                                      ExposureMask,
-                                      (XEvent *)&expev);
-      gettimeofday(&tv, NULL);
-      if (seen_expose) {
-        timeradd(&tv, &animate_delay, &mkwin_tout);
-        break;
-      }
-    } while (timercmp(&tv, &mkwin_tout, <));
-    return black_window;
-}
-
-void set_x_size(Display *dpy, Window root, int w, int h,
-                int use_black, Window black_window)
-{
-  XConfigureEvent ev;
-  XEvent expev;
-  struct timeval tv;
-
-  /* Wait round if the timeout didn't expire */
-  if (use_black) do {
-      /* Do the check to let X flush things */
-      XCheckWindowEvent(dpy, black_window, ExposureMask, &expev);
-      gettimeofday(&tv, NULL);
-    } while (timercmp(&tv, &mkwin_tout, <));
-
-  ev.type = ConfigureNotify;
-  ev.display = dpy;
-  ev.serial = 0;
-  ev.send_event = True;
-  ev.event = root;
-  ev.window = root;
-  ev.x = 0;
-  ev.y = 0;
-  ev.width = w;
-  ev.height = h;
-  ev.border_width = 0;
-  ev.above = None;
-  ev.override_redirect = 0;
-  XSendEvent(dpy, root, False,
-             StructureNotifyMask|SubstructureNotifyMask, (XEvent *)&ev);
-  XFlush(dpy);
-  if (use_black) {
-    XDestroyWindow(dpy, black_window);
-    XFlush(dpy);
-  }
-}
-
-
 void usage(char *prog)
 {
   fprintf(stderr,
@@ -342,8 +243,6 @@ void usage(char *prog)
           CHTEST_EXPERIMENT2);
   fprintf(stderr, "-m: list known modes\n");
   fprintf(stderr, "-M<number>: Force use of mode number\n");
-  fprintf(stderr, "-x: Fixup X server width\n");
-  fprintf(stderr, "-X: Fixup X server width and exit\n");
 
   exit(1);
 }
@@ -737,31 +636,24 @@ int get_edid(int i2cdev, unsigned char *edid, int newFirmware, int verbose)
   return 0;
 }
 
-int init_lcd_timing(struct timing_ch7036 *lcd_timing, int *width_fix,
-                    XRRModeInfo *xmode)
+int init_lcd_timing(struct timing_ch7036 *lcd_timing, drmModeModeInfoPtr mode)
 {
-  if ((xmode->width == 1366) && (xmode->height == 768)) {
-    width_fix = width_fix_1366x768;
-  } else if ((xmode->width == 1280) && (xmode->height == 800)) {
-    width_fix = width_fix_1280x800;
-  } else
-    width_fix = NULL;
-
-  lcd_timing->clk_khz = xmode->dotClock/1000;
+  lcd_timing->clk_khz = mode->clock;
   lcd_timing->pixel_fmt = PIXEL_FMT_18BIT;
-  lcd_timing->hs_pol = (xmode->modeFlags & RR_HSyncPositive) ? 1 : 0;
-  lcd_timing->vs_pol = (xmode->modeFlags & RR_VSyncPositive) ? 1 : 0;
+  lcd_timing->hs_pol = (mode->flags & DRM_MODE_FLAG_PHSYNC) ? 1 : 0;
+  lcd_timing->vs_pol = (mode->flags & DRM_MODE_FLAG_PVSYNC) ? 1 : 0;
   lcd_timing->de_pol = 1;
 
-  lcd_timing->ht = xmode->hTotal;
-  lcd_timing->ha = xmode->width;
-  lcd_timing->ho = xmode->hSyncStart - xmode->width;
-  lcd_timing->hw = xmode->hSyncEnd - xmode->hSyncStart;
-  lcd_timing->vt = xmode->vTotal;
-  lcd_timing->va = xmode->height;
-  lcd_timing->vo = xmode->vSyncStart - xmode->height;
-  lcd_timing->vw = xmode->vSyncEnd - xmode->vSyncStart;
+  lcd_timing->ht = mode->htotal;
+  lcd_timing->ha = mode->hdisplay;
+  lcd_timing->ho = mode->hsync_start - mode->hdisplay;
+  lcd_timing->hw = mode->hsync_end - mode->hsync_start;
+  lcd_timing->vt = mode->vtotal;
+  lcd_timing->va = mode->vdisplay;
+  lcd_timing->vo = mode->vsync_start - mode->vdisplay;
+  lcd_timing->vw = mode->vsync_end - mode->vsync_start;
   lcd_timing->scale = MK_SCALE(0, 0);
+  return 0;
 }
 
 
@@ -774,18 +666,14 @@ int main(int argc, char *argv[])
   char *fwfile = DEF_FW;
   int arg;
   int err;
-  Display *dpy;
-  Window root;
-  int screen;
-  Window bwin;
-  XRRModeInfo *xmode;
+  drmModeModeInfo mode;
+  int dpms;
   int forcen_x = 0;
   int forcen_a = -1;
   int force_edid = 0;
   int probe_only = 0;
   int dummy_i2c = 0;
   int verbose = 0;
-  int *width_fix;
   unsigned char edid[256];
   unsigned char newedid[256];
   int use_new_edid = 0;
@@ -796,8 +684,6 @@ int main(int argc, char *argv[])
   int needReload = 1;   /* Force firmware to load on the first loop */
   int newFirmware = 1;
   int force_mode = -1;
-  int fixupx = 0;
-  int only_fixupx = 0;
 
   struct reg_ch7036 *reglist;
 
@@ -824,13 +710,6 @@ int main(int argc, char *argv[])
 
     case 'n':
       dummy_i2c = 1;
-      break;
-
-    case 'X':
-      only_fixupx = 1;
-      /* Fall through */
-    case 'x':
-      fixupx = 1;
       break;
 
     case 'V':
@@ -998,22 +877,17 @@ int main(int argc, char *argv[])
   } else
     gpiodev = 0;
 
-  dpy = XOpenDisplay(":0.0");
-  if (dpy == NULL) {
-    fprintf(stderr, "%s: Can't open display :0.0\n", argv[0]);
+
+  if (drm_init() < 0) {
+    fprintf(stderr, "%s: Can't open DRM device\n", argv[0]);
     exit(1);
   }
-  screen = DefaultScreen (dpy);
-  root = RootWindow (dpy, screen);
-  xmode = get_x_mode_info(dpy, root);
-  if (xmode != NULL) {
-    if (verbose) showmode(xmode);
+  drm_get_mode(&mode, &dpms);
 
-    if (fixupx) {
-      set_x_size(dpy, root, xmode->width, xmode->height, 0, 0);
-      if (only_fixupx) exit(0);
-    }
-    init_lcd_timing(&lcd_timing, width_fix, xmode);
+  if (mode.hdisplay) {
+    if (verbose) drm_show_mode(&mode);
+
+    init_lcd_timing(&lcd_timing, &mode);
   }
   audio_init(verbose);
 
@@ -1025,7 +899,6 @@ int main(int argc, char *argv[])
     char *why_aud;
     int enable_audio = 0;
     int output_hdmi = 0;
-    int use_black_window;
     int ares;
     if ((edidlog = fopen(EDID_LOG, "w")) != NULL) {
       fprintf(edidlog, "No HDMI device detected\n");
@@ -1127,13 +1000,13 @@ int main(int argc, char *argv[])
 
     /* Could loop here 3 times: preferred, standard and default */
     do {
-      while (xmode == NULL) {
-        if (verbose) printf("Querying xmode info\n");
-        xmode = get_x_mode_info(dpy, root);
-        if (xmode == NULL)
+      while (mode.hdisplay == 0) {
+        if (verbose) printf("Querying mode info\n");
+        drm_get_mode(&mode, &dpms);
+        if (mode.hdisplay == 0)
           sleep(YIELD_CHRONTEL_DETECT_SECS);
       }
-      init_lcd_timing(&lcd_timing, width_fix, xmode);
+      init_lcd_timing(&lcd_timing, &mode);
       /* Catch error cases either from the code above or second pass of loop */
       if (mon_timing == NULL) {
         if (verbose)
@@ -1146,24 +1019,21 @@ int main(int argc, char *argv[])
         show_ch_timing(&lcd_timing, "input (laptop lcd)");
         show_ch_timing(mon_timing, "output (hdmi port)");
       }
-      if ((width_fix != NULL) && (aspect >= 0))
-        new_width = width_fix[aspect];
-      else
-        new_width = xmode->width;
-      new_height = xmode->height;
+      new_width = mode.hdisplay;
+      new_height = mode.vdisplay;
 
       /* Special case for 1280 width to avoid shrinking by a small amount */
       /* (the 5:4 aspect 1280x1024 will have reduced new_width above) */
       if ((new_width == 1366) && (mon_timing->ha == 1280)) {
         new_width = 1280;
         /* Mostly for 1280x720 which is popular for TVs, avoid y scale too */
-        if (mon_timing->va < xmode->height) new_height = mon_timing->va;
+        if (mon_timing->va < mode.vdisplay) new_height = mon_timing->va;
       }
 
       lcd_timing.ha = new_width;
-      lcd_timing.ho = xmode->hSyncStart - new_width;
+      lcd_timing.ho = mode.hsync_start - new_width;
       lcd_timing.va = new_height;
-      lcd_timing.vo = xmode->vSyncStart - new_height;
+      lcd_timing.vo = mode.vsync_start - new_height;
 
       set_ch7036_config(i2cdev);
       err = GenTableCH7036(&lcd_timing, mon_timing, &reglist);
@@ -1181,23 +1051,6 @@ int main(int argc, char *argv[])
         }
       }
     } while (err != 0);
-
-    use_black_window = 0;
-
-    /* The use flag bogus_screen_resizes gives this define to both */
-    /* this driver and the chromeos window manager. When set the   */
-    /* wm will clear the unused screen areas, so we don't have to  */
-    /* This allows the login/unlock screen to clear correctly      */
-    /* Aura does not do this but the flag is set to allow non-aura */
-#if defined(BOGUS_SCREEN_RESIZES) && !defined(USE_AURA)
-    if (verbose) printf("Use collusion with window manager to clear screen\n");
-#else
-    if (verbose) printf("Try black window to clear screen\n");
-    if (new_width != xmode->width) {
-      bwin = x_start_blank(dpy, screen, root, xmode->width, xmode->height);
-      use_black_window = 1;
-    }
-#endif
 
     if (verbose) printf("Restore defaults:\n");
     ch_restore_notin_seq(i2cdev, reglist, verbose);
@@ -1228,10 +1081,6 @@ int main(int argc, char *argv[])
     ch_monitor_on(i2cdev, output_hdmi, verbose);
     hdmiOn = 1;
 
-    if (new_width != xmode->width) {
-      if (verbose) printf("Change X active to %dx%d\n", new_width, new_height);
-      set_x_size(dpy, root, new_width, new_height, use_black_window, bwin);
-    }
     audio_to_hdmi(enable_audio);
     if (verbose) printf("Monitor should be on!\n");
     if ((edidlog = fopen(EDID_LOG, "w")) != NULL) {
@@ -1259,8 +1108,6 @@ int main(int argc, char *argv[])
 
     mondetect = 1;
     do {
-      CARD16 state;
-      BOOL onoff;
       int resreg;
 
       /* Check for unexpected change in Chrontel */
@@ -1298,15 +1145,14 @@ int main(int argc, char *argv[])
         if (verbose) printf("New EDID is the same, using existing settings\n");
         if (gpiodev) ch_suspend_firmware(i2cdev, verbose);
       } else {
-        DPMSInfo(dpy, &state, &onoff);
-        xmode = get_x_mode_info(dpy, root);
-        if (((state != DPMSModeOn) && hdmiOn) || (xmode == NULL)) {
+        drm_get_mode(&mode, &dpms);
+        if (((dpms != DRM_MODE_DPMS_ON) && hdmiOn) || (mode.hdisplay == 0)) {
           if (verbose) printf("DPMS is %son, output is %s, turn off hdmi\n",
-                              (state != DPMSModeOn) ? "not " : "",
-                              (xmode == NULL) ? "disabled":"enabled");
+                              (dpms != DRM_MODE_DPMS_ON) ? "not " : "",
+                              (mode.hdisplay == 0) ? "disabled":"enabled");
           ch_monitor_off_keep_ddc(i2cdev);
           hdmiOn = 0;
-        } else if ((state == DPMSModeOn) && !hdmiOn) {
+        } else if ((dpms == DRM_MODE_DPMS_ON) && !hdmiOn) {
           if (verbose) printf("DPMS is on, turn on hdmi\n");
           ch_monitor_on(i2cdev, output_hdmi, verbose);
           if (verbose) printf("Monitor back on with DPMS On\n");
@@ -1328,11 +1174,6 @@ int main(int argc, char *argv[])
     if (!needReload && gpiodev && hdmiOn)
       ch_release_firmware(i2cdev, verbose);
 
-    if (new_width != xmode->width) {
-      if (verbose) printf("Change X active to %dx%d\n",
-                          xmode->width, xmode->height);
-      set_x_size(dpy, root, xmode->width, xmode->height, 0, bwin);
-    }
     if (hdmiOn && !needReload) {
       ch_monitor_off_keep_ddc(i2cdev);
       audio_to_hdmi(0);

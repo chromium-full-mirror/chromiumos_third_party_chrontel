@@ -12,30 +12,16 @@
 #include <linux/i2c-dev.h>
 #include <sys/ioctl.h>
 #include <sys/time.h>
-#include <X11/Xlib.h>
-#include <X11/Xlibint.h>
-#include <X11/Xproto.h>
-#include <X11/Xatom.h>
-#include <X11/extensions/Xrandr.h>
-
-#if RANDR_MAJOR > 1 || (RANDR_MAJOR == 1 && RANDR_MINOR >= 2)
-#define HAS_RANDR_1_2 1
-#else
-#error Only tested with xrandr 1.2
-#endif
-
+#include <xf86drm.h>
+#include <xf86drmMode.h>
 
 #include "ch7036.h"
+#include "drm_utils.h"
 #include "edid_utils.h"
-#include "xrr_utils.h"
 
 #define MAX_EDID_EXT 4
 
-#define DEF_DEV "/dev/i2c-2"
-
-static Display *dpy;
-static Window root;
-static int screen;
+#define DEF_DEV "/dev/i2c-chrontel"
 
 
 void usage(char *prog)
@@ -71,7 +57,8 @@ int main(int argc, char *argv[])
   char *gpiofile = NULL;
   int arg;
   int err;
-  XRRModeInfo *xmode;
+  drmModeModeInfo mode;
+  int dpms;
 
   int dummy_i2c = 0;
 
@@ -160,15 +147,12 @@ int main(int argc, char *argv[])
   fprintf(stderr, "HDMI status 0x%02x: %s\n", err,
           (err & 0x10) ? "connected (or firmware not running)":"not detected");
 
-  dpy = XOpenDisplay(":0.0");
-  if (dpy == NULL) {
-    fprintf(stderr, "Can't open display :0.0\n");
+  if (drm_init() < 0) {
+    fprintf(stderr, "Can't open DRM device\n");
     exit(1);
   }
-  screen = DefaultScreen (dpy);
-  root = RootWindow (dpy, screen);
-  xmode = get_x_mode_info(dpy, root);
-  showmode(xmode);
+  drm_get_mode(&mode, &dpms);
+  drm_show_mode(&mode);
 
   for(;arg < argc; arg++) {
     switch(argv[arg][0]) {
@@ -336,5 +320,6 @@ int main(int argc, char *argv[])
 
   close(i2cdev);
   if (gpiodev) close(gpiodev);
+  drm_done();
   return 0;
 }
